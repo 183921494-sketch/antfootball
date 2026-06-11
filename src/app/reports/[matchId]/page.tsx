@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Printer } from "lucide-react";
+import { PredictionScheme } from "@/components/prediction-scheme";
 
 interface ReportDetail {
   id: string;
@@ -37,7 +38,10 @@ export default function ReportDetailPage() {
   const fetchReport = async () => {
     try {
       const res = await fetch(`/api/analysis?type=detail&match_id=${matchId}`);
-      if (res.ok) { const data = await res.json(); setReport(data.report || null); }
+      if (res.ok) {
+        const data = await res.json();
+        setReport(data.report || null);
+      }
     } catch { setReport(null); }
     finally { setLoading(false); }
   };
@@ -57,8 +61,6 @@ export default function ReportDetailPage() {
       </div>
     );
   }
-
-  const maxProb = Math.max(report.home_win_probability, report.draw_probability, report.away_win_probability);
 
   return (
     <div className="min-h-screen bg-[#111]">
@@ -88,71 +90,25 @@ export default function ReportDetailPage() {
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-4 md:px-6 py-6 md:py-8 space-y-4 md:space-y-6 pb-24 md:pb-8">
-        {/* MSI comparison */}
-        <div className="bg-white/5 border border-[#B08D57]/20 rounded-xl p-4 md:p-6">
-          <h2 className="text-base md:text-lg font-bold text-[#F7F5F0] mb-3 md:mb-4">MSI 六维评分对比</h2>
-          <div className="grid grid-cols-2 gap-4 md:gap-6">
-            <div className="text-center">
-              <div className="text-[#F7F5F0]/50 text-xs md:text-sm mb-1 truncate">{report.home_team}</div>
-              <div className="text-2xl md:text-4xl font-bold text-green-400">{report.home_team_msi.toFixed(2)}</div>
-            </div>
-            <div className="text-center">
-              <div className="text-[#F7F5F0]/50 text-xs md:text-sm mb-1 truncate">{report.away_team}</div>
-              <div className="text-2xl md:text-4xl font-bold text-red-400">{report.away_team_msi.toFixed(2)}</div>
-            </div>
-          </div>
-          <div className="mt-3 relative h-2 bg-white/10 rounded-full overflow-hidden">
-            <div className="absolute top-0 left-0 h-full bg-green-400 rounded-full transition-all" style={{ width: `${(report.home_team_msi / 10) * 100}%` }} />
-          </div>
-        </div>
-
-        {/* Probabilities */}
-        <div className="bg-white/5 border border-[#B08D57]/20 rounded-xl p-4 md:p-6">
-          <h2 className="text-base md:text-lg font-bold text-[#F7F5F0] mb-3 md:mb-4">胜平负概率</h2>
-          <div className="grid grid-cols-3 gap-2 md:gap-4">
-            <ProbBar label="主胜" value={report.home_win_probability} max={maxProb} color="green" />
-            <ProbBar label="平局" value={report.draw_probability} max={maxProb} color="gold" />
-            <ProbBar label="客胜" value={report.away_win_probability} max={maxProb} color="red" />
-          </div>
-          <div className="mt-3 text-center text-xs text-[#F7F5F0]/50">
-            预期进球：{report.expected_goals.toFixed(1)}
-          </div>
-        </div>
-
-        {/* Key insights */}
-        {report.key_insights && (
-          <div className="bg-white/5 border border-[#B08D57]/20 rounded-xl p-4 md:p-6">
-            <h2 className="text-base md:text-lg font-bold text-[#F7F5F0] mb-2 md:mb-3">💡 关键洞察</h2>
-            <div className="text-xs md:text-sm text-[#F7F5F0]/80 whitespace-pre-wrap">{report.key_insights}</div>
-          </div>
-        )}
-
-        {/* Risk factors */}
-        {report.risk_factors && (
-          <div className="bg-white/5 border border-red-500/20 rounded-xl p-4 md:p-6">
-            <h2 className="text-base md:text-lg font-bold text-red-400 mb-2 md:mb-3">⚠️ 风险因素</h2>
-            <div className="text-xs md:text-sm text-[#F7F5F0]/80 whitespace-pre-wrap">{report.risk_factors}</div>
-          </div>
-        )}
-
-        {/* Opportunity factors */}
-        {report.opportunity_factors && (
-          <div className="bg-white/5 border border-green-500/20 rounded-xl p-4 md:p-6">
-            <h2 className="text-base md:text-lg font-bold text-green-400 mb-2 md:mb-3">✅ 机会因素</h2>
-            <div className="text-xs md:text-sm text-[#F7F5F0]/80 whitespace-pre-wrap">{report.opportunity_factors}</div>
-          </div>
-        )}
-
-        {/* Print button - fixed on mobile */}
-        <div className="hidden md:block text-center print:hidden">
-          <button
-            onClick={() => window.print()}
-            className="px-6 py-3 bg-[#B08D57] text-[#111] font-bold rounded-lg hover:bg-[#B08D57]/90 transition-colors"
-          >
-            🖨️ 打印报告
-          </button>
-        </div>
+      {/* Prediction Scheme */}
+      <div className="max-w-4xl mx-auto px-4 md:px-6 py-6 md:py-8 pb-24 md:pb-8">
+        <PredictionScheme
+          homeTeam={report.home_team}
+          awayTeam={report.away_team}
+          homeWinProbability={report.home_win_probability}
+          drawProbability={report.draw_probability}
+          awayWinProbability={report.away_win_probability}
+          homeTeamMsi={report.home_team_msi}
+          awayTeamMsi={report.away_team_msi}
+          expectedGoals={report.expected_goals}
+          confidenceLevel={report.confidence_level}
+          keyInsights={report.key_insights}
+          riskFactors={report.risk_factors}
+          opportunityFactors={report.opportunity_factors}
+          isFinal={report.is_final}
+          reportType={report.report_type}
+          generatedAt={report.generated_at}
+        />
       </div>
 
       {/* Mobile fixed bottom CTA */}
@@ -163,22 +119,6 @@ export default function ReportDetailPage() {
         >
           <Printer className="w-4 h-4" /> 打印报告
         </button>
-      </div>
-    </div>
-  );
-}
-
-function ProbBar({ label, value, max, color }: { label: string; value: number; max: number; color: string }) {
-  const pct = (value * 100).toFixed(1);
-  const barWidth = (value / max) * 100;
-  const colors = { green: "bg-green-400", gold: "bg-[#B08D57]", red: "bg-red-400" };
-
-  return (
-    <div className="text-center">
-      <div className="text-[10px] md:text-xs text-[#F7F5F0]/50 mb-0.5">{label}</div>
-      <div className="text-lg md:text-2xl font-bold text-[#F7F5F0] mb-1.5">{pct}%</div>
-      <div className="h-1.5 md:h-2 bg-white/10 rounded-full overflow-hidden">
-        <div className={`h-full ${colors[color as keyof typeof colors]} rounded-full transition-all`} style={{ width: `${barWidth}%` }} />
       </div>
     </div>
   );

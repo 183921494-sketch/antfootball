@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
   Trophy, CalendarDays, FileText, Handshake, Wallet,
-  Settings, Menu, X, LogOut, Home, LayoutDashboard
+  Settings, Menu, X, LogOut, Home, LayoutDashboard, UserCog
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -15,6 +15,7 @@ const NAV_ITEMS = [
   { href: "/admin/matches", label: "比赛管理", icon: CalendarDays, shortLabel: "比赛" },
   { href: "/admin/reports", label: "报告管理", icon: FileText, shortLabel: "报告" },
   { href: "/admin/partners", label: "合作方管理", icon: Handshake, shortLabel: "合作" },
+  { href: "/admin/users", label: "账号管理", icon: UserCog, shortLabel: "账号" },
   { href: "/admin/commissions", label: "佣金管理", icon: Wallet, shortLabel: "佣金" },
   { href: "/admin/config", label: "系统配置", icon: Settings, shortLabel: "配置" },
 ];
