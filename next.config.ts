@@ -2,33 +2,23 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  
-  // Turbopack configuration (Next.js 16 default)
   turbopack: {
-    // Turbo configuration if needed
+    root: __dirname,
   },
-  
-  // Supabase requires image optimization configuration
+
+  // Image optimization for Supabase
   images: {
     remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "**.supabase.co",
-      },
-      {
-        protocol: "https",
-        hostname: "**.r2.dev",
-      },
+      { protocol: "https", hostname: "**.supabase.co" },
+      { protocol: "https", hostname: "**.r2.dev" },
     ],
   },
-  
+
   // Environment variables
   env: {
-    CUSTOM_KEY: process.env.CUSTOM_KEY,
+    NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+    NEXT_PUBLIC_APP_NAME: process.env.NEXT_PUBLIC_APP_NAME,
   },
-  
-  // Note: webpack config is ignored when using Turbopack
-  // Migrate to turbopack config if needed
 };
 
 export default nextConfig;

@@ -35,3 +35,17 @@ next-env.d.ts
 
 # supabase
 .supabase/
+
+# scripts with tokens
+deploy.py
+add_domain.py
+check_project.py
+set_env.py
+wait_deploy.py
+run_migration.py
+check_seed_data.py
+
+# SQL temp files
+*.sql
+!supabase/migrations/*.sql
+migrations/
