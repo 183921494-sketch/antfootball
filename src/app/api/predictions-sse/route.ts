@@ -16,6 +16,8 @@ let cache: Map<string, {
   group: string
   homeTeam: any
   awayTeam: any
+  homeTeamAbbrev?: string
+  awayTeamAbbrev?: string
   venue: string
   updatedAt: number
 }> = new Map()
@@ -56,6 +58,8 @@ async function pollAndUpdate() {
       if (hasChanged || !existing) {
         const homeAbbrev = home.team.abbreviation || home.team.displayName?.slice(0, 3) || 'UNK'
         const awayAbbrev = away.team.abbreviation || away.team.displayName?.slice(0, 3) || 'UNK'
+        const homeTeamName = home.team.displayName || homeAbbrev
+        const awayTeamName = away.team.displayName || awayAbbrev
         const homeRating = getTeamRating(homeAbbrev)
         const awayRating = getTeamRating(awayAbbrev)
 
@@ -89,8 +93,8 @@ async function pollAndUpdate() {
               overProb: prediction.overProb,
               underProb: prediction.underProb,
               overUnderLine: prediction.overUnderLine,
-              homeTeam: prediction.homeTeam,
-              awayTeam: prediction.awayTeam,
+              homeTeam: prediction.homeTeam.teamName,
+              awayTeam: prediction.awayTeam.teamName,
               keyInsights: prediction.keyInsights,
               riskFactors: prediction.riskFactors,
               opportunityFactors: prediction.opportunityFactors,
@@ -105,8 +109,10 @@ async function pollAndUpdate() {
             startTime: match.date,
             date: dateStr,
             group: '',
-            homeTeam: homeRating,
-            awayTeam: awayRating,
+            homeTeam: homeTeamName,
+            awayTeam: awayTeamName,
+            homeTeamAbbrev: homeAbbrev,
+            awayTeamAbbrev: awayAbbrev,
             venue: match.competitions?.[0]?.venue?.fullName || '',
             updatedAt: now
           })
