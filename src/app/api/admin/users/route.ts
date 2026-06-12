@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
   const check = verifySuperAdmin(req)
   if (!check.ok) return check.resp
 
-  const { phone, password, nickname, role } = await req.json()
+  const { phone, password, nickname, role, tier } = await req.json()
   if (!phone || !password || !nickname) {
     return NextResponse.json({ error: '手机号、密码、昵称不能为空' }, { status: 400 })
   }
@@ -39,8 +39,11 @@ export async function POST(req: NextRequest) {
   if (role && !['user'].includes(role)) {
     return NextResponse.json({ error: '角色无效' }, { status: 400 })
   }
+  if (tier && !['vip', 'svip'].includes(tier)) {
+    return NextResponse.json({ error: '会员等级无效' }, { status: 400 })
+  }
 
-  const result = createUser({ phone, password, nickname, role: role || 'user' })
+  const result = createUser({ phone, password, nickname, role: role || 'user', tier: tier || 'vip' })
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 409 })
   }
@@ -52,13 +55,16 @@ export async function PUT(req: NextRequest) {
   const check = verifySuperAdmin(req)
   if (!check.ok) return check.resp
 
-  const { phone, nickname, status, password } = await req.json()
+  const { phone, nickname, status, password, tier } = await req.json()
   if (!phone) return NextResponse.json({ error: '手机号不能为空' }, { status: 400 })
   // Cannot modify super admin
   if (phone === '15377731411') {
     return NextResponse.json({ error: '无法修改超级管理员' }, { status: 403 })
   }
-  const result = updateUser(phone, { nickname, status, password })
+  if (tier && !['vip', 'svip'].includes(tier)) {
+    return NextResponse.json({ error: '会员等级无效' }, { status: 400 })
+  }
+  const result = updateUser(phone, { nickname, status, password, tier: tier as 'vip' | 'svip' | undefined })
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 404 })
   }

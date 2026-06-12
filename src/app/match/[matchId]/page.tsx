@@ -1,6 +1,7 @@
 'use client'
 import React, { useEffect, useState, useRef } from 'react'
 import Link from 'next/link'
+import { toPng } from 'html-to-image'
 
 // ============ Types ============
 
@@ -315,16 +316,33 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
   const [liveUpdate, setLiveUpdate] = useState<any>(null)
   const [connected, setConnected] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [upgradeError, setUpgradeError] = useState(false)
   const [error, setError] = useState('')
   const esRef = useRef<EventSource | null>(null)
+  const reportRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    setError('')
+    setUpgradeError(false)
+    setLoading(true)
     fetch(`/api/predict?matchId=${matchId}`)
-      .then(r => r.json())
+      .then(async (r) => {
+        if (r.status === 403) {
+          const err = await r.json()
+          if (err.code === 'UPGRADE_REQUIRED') {
+            setUpgradeError(true)
+            setLoading(false)
+            return null
+          }
+        }
+        return r.json()
+      })
       .then(j => {
-        if (j.data?.length > 0) {
-          setData(j.data[0])
-          setError('')
+        if (!j) return
+        const matches = j.matches || j.data || []
+        if (matches.length > 0) {
+          setData(matches[0])
         } else {
           setError('未找到该比赛的预测数据')
         }
@@ -349,11 +367,44 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
     return () => { es.close(); esRef.current = null }
   }, [matchId])
 
+  const handleSaveImage = async () => {
+    const el = reportRef.current
+    if (!el) return
+    setSaving(true)
+    try {
+      const dataUrl = await toPng(el, {
+        quality: 0.92,
+        pixelRatio: window.devicePixelRatio || 2,
+        backgroundColor: '#0a0a0a',
+        style: { transform: 'none' },
+      })
+      const blob = await (await fetch(dataUrl)).blob()
+      const fileName = `蚂蚁足球_${d?.homeTeam?.teamName || '主队'}_vs_${d?.awayTeam?.teamName || '客队'}_${Date.now()}.png`
+      const mobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)
+      if (mobile && navigator.share && navigator.canShare?.({ files: [new File([], fileName)] })) {
+        const file = new File([blob], fileName, { type: 'image/png' })
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: '蚂蚁足球分析报告' })
+        } else {
+          const a = document.createElement('a')
+          a.href = dataUrl; a.download = fileName; a.click()
+        }
+      } else {
+        const a = document.createElement('a')
+        a.href = dataUrl; a.download = fileName; a.click()
+      }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   if (loading) return (
     <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center text-[#F7F5F0]/30">
       <div className="text-center">
         <div className="animate-spin w-8 h-8 border-2 border-[#B08D57]/30 border-t-[#B08D57] rounded-full mx-auto mb-3" />
-        <p>正在生成分析报告...</p>
+        <p>正在加载分析报告...</p>
       </div>
     </div>
   )
@@ -381,7 +432,19 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
       {/* Header */}
       <header className="sticky top-0 z-50 bg-[#111111]/95 backdrop-blur border-b border-white/5 px-4 py-2.5 flex items-center gap-3">
         <Link href="/" className="text-[#B08D57] hover:text-[#c9a56a] text-sm">← 返回</Link>
-        <div className="flex items-center gap-2 ml-auto">
+        <button
+          onClick={handleSaveImage}
+          disabled={saving || !data}
+          className={`ml-auto flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition ${
+saving ? 'opacity-40' : 'border-[#B08D57]/30 text-[#B08D57] hover:bg-[#B08D57]/10'} `}
+        >
+          {saving ? (
+            <><span className="animate-spin">◌</span> 生成中...</>
+          ) : (
+            <><span>📥</span> 保存报告</>
+          )}
+        </button>
+        <div className="flex items-center gap-2">
           <span className={`text-[10px] ${connected ? 'text-green-400' : 'text-red-400'}`}>
             {connected ? '● 实时' : '○ 离线'}
           </span>
@@ -434,38 +497,38 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
         </div>
       </div>
 
-      <div className="max-w-3xl mx-auto px-4 py-5 space-y-5">
-        {isFinished ? (
-          /* Finished: result only */
-          <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-6 text-center space-y-4">
-            <div className="text-sm text-[#F7F5F0]/40">比赛已结束</div>
-            <div className="text-5xl font-bold tabular-nums">
-              <span className="text-green-400">{liveScore?.home ?? d.homeScore ?? 0}</span>
-              <span className="text-[#B08D57] mx-3">:</span>
-              <span className="text-red-400">{liveScore?.away ?? d.awayScore ?? 0}</span>
-            </div>
-            <div className="text-xs text-[#F7F5F0]/25">最终比分 · 预测内容已隐藏</div>
-            {pred && (
-              <div className="pt-4 border-t border-white/[0.06]">
-                <div className="text-xs text-[#F7F5F0]/30 mb-2">赛前预测回顾</div>
-                <div className="inline-block bg-white/[0.03] rounded-lg px-4 py-2">
-                  <span className={
-                    pred.recommendation === 'home' ? 'text-green-400' :
-                    pred.recommendation === 'away' ? 'text-red-400' : 'text-yellow-400'
-                  }>
-                    {pred.recommendation === 'home' ? d.homeTeam.teamName :
-                     pred.recommendation === 'away' ? d.awayTeam.teamName : '平局'}胜
-                  </span>
-                  <span className="text-[#B08D57] ml-2">置信度 {(pred.confidence * 100).toFixed(0)}%</span>
-                </div>
-              </div>
-            )}
+      {/* Report section — VIP 受限时显示升级提示 */}
+      {upgradeError ? (
+        <div className="max-w-3xl mx-auto px-4 py-16 text-center space-y-6">
+          <div className="text-6xl">🔒</div>
+          <h2 className="text-2xl font-bold text-[#B08D57]">VIP账号查看受限</h2>
+          <p className="text-[#F7F5F0]/50 max-w-sm mx-auto leading-relaxed">
+            您的VIP账号仅可查看 <span className="text-[#B08D57] font-bold">2场未开始赛事</span> 的预测分析。<br />
+            升级SVIP即可解锁全部赛事预测。
+          </p>
+          <div className="pt-4">
+            <span className="inline-block bg-[#B08D57]/15 text-[#B08D57] text-sm font-bold px-6 py-3 rounded-full border border-[#B08D57]/25">
+              SVIP · 全场解锁
+            </span>
           </div>
-        ) : (
-          /* Full analysis report */
+        </div>
+      ) : (
+        <div ref={reportRef} className="max-w-3xl mx-auto px-4 py-5 space-y-5">
+          {isFinished && (
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 text-center space-y-2">
+              <div className="text-sm text-[#F7F5F0]/40">🏁 比赛已结束 · 赛前预测回顾</div>
+              <div className="text-4xl font-bold tabular-nums">
+                <span className="text-green-400">{liveScore?.home ?? d.homeScore ?? 0}</span>
+                <span className="text-[#B08D57] mx-3">:</span>
+                <span className="text-red-400">{liveScore?.away ?? d.awayScore ?? 0}</span>
+              </div>
+            </div>
+          )}
           <AnalysisReport pred={pred} homeName={d.homeTeam.teamName} awayName={d.awayTeam.teamName} />
-        )}
-      </div>
+          {/* Watermark (shown in saved image) */}
+          <div className="text-center text-[10px] text-[#F7F5F0]/10 pt-1">蚂蚁足球 · antfootball.mysh.tech</div>
+        </div>
+      )}
 
       <div className="text-center text-[#F7F5F0]/8 text-xs pb-8">
         蚂蚁足球 · 高精度世界杯预测 · 仅供参考 · 请理性对待

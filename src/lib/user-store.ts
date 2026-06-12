@@ -20,7 +20,7 @@ function writeUsers(users: AuthUser[]): void {
 export type SafeUser = Omit<AuthUser, 'passwordHash'>
 
 export function getAllUsers(): SafeUser[] {
-  return readUsers().map(u => ({ phone: u.phone, role: u.role, nickname: u.nickname, createdAt: u.createdAt, status: u.status }))
+  return readUsers().map(u => ({ phone: u.phone, role: u.role, tier: u.tier, nickname: u.nickname, createdAt: u.createdAt, status: u.status }))
 }
 
 export function findUserByPhone(phone: string): AuthUser | null {
@@ -33,6 +33,7 @@ export function createUser(data: {
   password: string
   nickname: string
   role?: 'super_admin' | 'user'
+  tier?: 'vip' | 'svip'
 }): { success: true; user: SafeUser } | { success: false; error: string } {
   const users = readUsers()
   if (users.find(u => u.phone === data.phone)) {
@@ -42,6 +43,7 @@ export function createUser(data: {
     phone: data.phone,
     passwordHash: hashPassword(data.password),
     role: data.role || 'user',
+    tier: data.tier || 'vip',
     nickname: data.nickname,
     createdAt: new Date().toISOString(),
     status: 'active'
@@ -50,13 +52,13 @@ export function createUser(data: {
   writeUsers(users)
   return {
     success: true,
-    user: { phone: user.phone, role: user.role, nickname: user.nickname, createdAt: user.createdAt, status: user.status }
+    user: { phone: user.phone, role: user.role, tier: user.tier, nickname: user.nickname, createdAt: user.createdAt, status: user.status }
   }
 }
 
 export function updateUser(
   phone: string,
-  updates: { nickname?: string; status?: string; password?: string }
+  updates: { nickname?: string; status?: string; password?: string; tier?: 'vip' | 'svip' }
 ): { success: true } | { success: false; error: string } {
   const users = readUsers()
   const idx = users.findIndex(u => u.phone === phone)
@@ -64,6 +66,7 @@ export function updateUser(
   if (updates.nickname) users[idx].nickname = updates.nickname
   if (updates.status) users[idx].status = updates.status as 'active' | 'disabled'
   if (updates.password) users[idx].passwordHash = hashPassword(updates.password)
+  if (updates.tier) users[idx].tier = updates.tier
   writeUsers(users)
   return { success: true }
 }
@@ -88,7 +91,7 @@ export function validateUser(
   }
   return {
     success: true,
-    user: { phone: user.phone, role: user.role, nickname: user.nickname, createdAt: user.createdAt, status: user.status }
+    user: { phone: user.phone, role: user.role, tier: user.tier, nickname: user.nickname, createdAt: user.createdAt, status: user.status }
   }
 }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { signToken, verifyToken } from '@/lib/auth'
-import { validateUser, validateSuperAdmin } from '@/lib/user-store'
+import { signToken, verifyToken, getTokenFromCookies } from '@/lib/auth'
+import { validateUser, validateSuperAdmin, findUserByPhone } from '@/lib/user-store'
+import { logLogin } from '@/lib/login-log'
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,6 +13,7 @@ export async function POST(req: NextRequest) {
 
     // Super admin login
     if (validateSuperAdmin(phone, password)) {
+      await logLogin({ phone, req })
       const token = signToken({ phone, role: 'super_admin', nickname: '超级管理员' })
       const resp = NextResponse.json({
         success: true,
@@ -32,9 +34,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: result.error }, { status: 401 })
     }
 
+    await logLogin({ phone, req })
+    const fullUser = findUserByPhone(phone)
+
     const token = signToken({
       phone: result.user.phone,
       role: result.user.role,
+      tier: fullUser?.tier || 'vip',
       nickname: result.user.nickname
     })
 
@@ -43,6 +49,7 @@ export async function POST(req: NextRequest) {
       user: {
         phone: result.user.phone,
         role: result.user.role,
+        tier: fullUser?.tier || 'vip',
         nickname: result.user.nickname
       }
     })
@@ -65,7 +72,7 @@ export async function DELETE(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  const token = req.cookies.get('auth_token')?.value
+  const token = getTokenFromCookies(req.headers.get('cookie'))
   if (!token) {
     return NextResponse.json({ authenticated: false })
   }
@@ -73,8 +80,14 @@ export async function GET(req: NextRequest) {
   if (!payload) {
     return NextResponse.json({ authenticated: false })
   }
+  const fullUser = findUserByPhone(payload.phone)
   return NextResponse.json({
     authenticated: true,
-    user: payload
+    user: {
+      phone: payload.phone,
+      role: payload.role,
+      tier: payload.tier || fullUser?.tier || 'vip',
+      nickname: payload.nickname || fullUser?.nickname || ''
+    }
   })
 }

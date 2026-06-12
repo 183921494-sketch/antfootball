@@ -95,6 +95,20 @@ export default function LoginPage() {
           <LoginForm />
         </Suspense>
 
+        {/* 官网入口 */}
+        <div className="mt-5 text-center">
+          <Link
+            href="/about"
+            className="inline-flex items-center gap-1.5 text-sm text-[#B08D57]/70 hover:text-[#B08D57] transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                d="M12 21a9 9 0 0 1 0-18m0 0a9 9 0 0 1 0-18M3.6 12a9 9 0 0 1 16.8 0m0 0a9 9 0 0 1-16.8 0M12 3v.01M12 12v.01M21 12a9 9 0 0 1-18 0m18 0a9 9 0 0 1-18 0" />
+            </svg>
+            了解更多
+          </Link>
+        </div>
+
         <p className="text-center text-[#F7F5F0]/20 text-xs mt-6">
           足球世界杯 · 精准预测 · 仅供参考
         </p>

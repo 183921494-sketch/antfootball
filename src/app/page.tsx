@@ -17,7 +17,7 @@ interface TeamInfo {
   mentalResilience: number
 }
 
-interface Top3Item {
+interface Top5Item {
   score: string
   probability: number
   marketOdds?: number
@@ -36,7 +36,7 @@ interface Prediction {
   confidenceLevel?: number
   confidenceLabel?: string
   scorePredictions: { score: string; probability: number; marketOdds?: number; valueEdge?: number }[]
-  top3Analysis?: Top3Item[]
+  top5Analysis?: Top5Item[]
   expectedHomeGoals: number
   expectedAwayGoals: number
   expectedTotalGoals: number
@@ -58,19 +58,19 @@ interface Prediction {
 
 interface MatchData {
   matchId: string
-  espnMatchId: string
   homeTeam: TeamInfo
   awayTeam: TeamInfo
+  homeTeamAbbrev: string
+  awayTeamAbbrev: string
   venue: string
   startTime: string
-  date: string // YYYY-MM-DD for grouping
-  status: string // pre | inprogress | finished
-  period: string
-  clock: string
+  date: string
+  status: string
+  group?: string
   homeScore?: number
   awayScore?: number
-  prediction: Prediction
-  group?: string // A, B, C...
+  prediction: Prediction | null
+  blurred?: boolean  // VIP用户不可查看的比赛（未开始且超过2场）
 }
 
 type TabType = 'all' | 'live' | 'upcoming' | 'finished'
@@ -92,11 +92,53 @@ function PredictionCard({ item, liveData, compact }: {
   const p = item.prediction
   const isLive = liveData?.status === 'inprogress' || item.status === 'inprogress'
   const isFinished = liveData?.status === 'finished' || item.status === 'finished'
+  const isBlurred = item.blurred && !isFinished  // 已完赛不模糊
 
   const homeScore = liveData?.homeScore ?? item.homeScore ?? 0
   const awayScore = liveData?.awayScore ?? item.awayScore ?? 0
-  const clock = liveData?.clock || item.clock || ''
+  const clock = liveData?.clock || ''
 
+  // Format time
+  const timeStr = new Date(item.startTime).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
+
+  // 模糊处理的卡片
+  if (isBlurred) {
+    return (
+      <div className="relative bg-white/[0.02] border border-white/[0.04] rounded-xl p-4 overflow-hidden">
+        {/* 模糊内容 */}
+        <div className="filter blur-[8px] pointer-events-none select-none">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs text-[#F7F5F0]/20 font-mono">{timeStr}</span>
+            <span className="text-[10px] text-[#F7F5F0]/20">🔒 需升级</span>
+          </div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-bold text-sm text-[#F7F5F0]/20">{item.homeTeam.teamName}</span>
+            <span className="text-sm text-[#F7F5F0]/20">VS</span>
+            <span className="font-bold text-sm text-[#F7F5F0]/20">{item.awayTeam.teamName}</span>
+          </div>
+          <div className="h-5 bg-white/5 rounded-full mb-1" />
+        </div>
+        
+        {/* 升级提示覆盖层 */}
+        <div className="absolute inset-0 flex items-center justify-center bg-[#0a0a0a]/80 rounded-xl">
+          <div className="text-center">
+            <div className="text-3xl mb-2">🔒</div>
+            <p className="text-sm font-bold text-[#B08D57] mb-1">VIP限制</p>
+            <p className="text-xs text-[#F7F5F0]/50 mb-3">升级SVIP查看完整预测</p>
+            <Link 
+              href="/admin" 
+              className="text-xs bg-[#B08D57] text-black px-3 py-1.5 rounded-full font-medium hover:bg-[#B08D57]/80 transition"
+            >
+              立即升级
+            </Link>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // 正常卡片（清晰显示）
+  if (!p) return null
   const conf = p.confidence || p.confidenceLevel || 0.5
   const confColor = conf >= 0.75 ? 'text-green-400' : conf >= 0.6 ? 'text-yellow-400' : 'text-[#F7F5F0]/40'
   const confBadge = conf >= 0.75 ? '🔥 高置信' : conf >= 0.6 ? '⚡ 中置信' : '📊 低置信'
@@ -108,11 +150,8 @@ function PredictionCard({ item, liveData, compact }: {
       ? `${item.awayTeam.teamName}胜`
       : '平局'
 
-  // Format time
-  const timeStr = new Date(item.startTime).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
-
   return (
-    <Link href={`/match/${item.matchId}`} className="block">
+    <Link href={isBlurred ? '#' : `/match/${item.matchId}`} className={`block ${isBlurred ? 'cursor-default' : ''}`} onClick={isBlurred ? (e) => { e.preventDefault(); alert('VIP账号仅可查看2场未开始赛事\n升级SVIP解锁全部预测'); } : undefined}>
       <div className={`bg-white/[0.03] border rounded-xl hover:border-[#B08D57]/30 transition cursor-pointer ${isLive ? 'border-red-500/30' : 'border-white/[0.06]'} ${compact ? 'p-3' : 'p-4'}`}>
         {/* Status + Time row */}
         <div className="flex items-center justify-between mb-2">
@@ -171,9 +210,9 @@ function PredictionCard({ item, liveData, compact }: {
         {/* Recommendation + Top3 波胆 */}
         <div className="flex items-center justify-between mt-1.5">
           <span className={`text-[10px] font-bold ${recColor}`}>📌 {recText}</span>
-          {p.top3Analysis && p.top3Analysis.length > 0 && (
+          {p.top5Analysis && p.top5Analysis.length > 0 && (
             <div className="flex items-center gap-1.5">
-              {p.top3Analysis.slice(0, 3).map((s) => (
+              {p.top5Analysis.slice(0, 5).map((s) => (
                 <span key={s.score} className={`text-[10px] font-mono ${
                   s.rank === 1 ? 'text-[#B08D57] font-bold' : s.rank === 2 ? 'text-[#F7F5F0]/60' : 'text-[#F7F5F0]/35'
                 }`}>
@@ -182,7 +221,7 @@ function PredictionCard({ item, liveData, compact }: {
               ))}
             </div>
           )}
-          {!p.top3Analysis && p.scorePredictions?.[0] && (
+          {!p.top5Analysis && p.scorePredictions?.[0] && (
             <span className="text-[10px] text-[#B08D57]">
               波胆 {p.scorePredictions[0].score} ({(p.scorePredictions[0].probability * 100).toFixed(1)}%)
             </span>
@@ -247,23 +286,35 @@ export default function HomePage() {
 
   // Check auth
   useEffect(() => {
-    fetch('/api/auth').then(r => r.json()).then(j => setAuth(j))
-  }, [])
-
-  // Fetch predictions
-  useEffect(() => {
-    fetch('/api/predict?all=1')
+    fetch('/api/auth')
       .then(r => r.json())
       .then(j => {
-        if (j?.data && Array.isArray(j.data)) {
-          setData({ matches: j.data })
+        setAuth(j)
+        // 认证状态确定后再加载数据
+        if (j?.authenticated) {
+          loadPredictions()
         } else {
-          setData({ matches: [] })
+          setLoading(false)
         }
-        setLoading(false)
       })
-      .catch(() => setLoading(false))
   }, [])
+
+  async function loadPredictions() {
+    try {
+      const res = await fetch('/api/predict', { credentials: 'include' })
+      const j = await res.json()
+      if (j?.matches && Array.isArray(j.matches)) {
+        setData({ matches: j.matches })
+      } else {
+        setData({ matches: [] })
+      }
+    } catch (e) {
+      console.error('[predict] Error:', e)
+      setData({ matches: [] })
+    } finally {
+      setLoading(false)
+    }
+  }
 
   // SSE real-time
   useEffect(() => {
@@ -372,9 +423,24 @@ export default function HomePage() {
             {connected ? '实时连接' : '重连中'}
           </span>
           <span className="text-xs text-[#F7F5F0]/50 max-w-[80px] truncate">{auth.user?.nickname}</span>
+          {auth.user?.tier === 'vip' && (
+            <span className="text-[10px] font-bold bg-amber-700/25 text-amber-400 px-2 py-0.5 rounded-full border border-amber-600/30">VIP</span>
+          )}
+          {auth.user?.tier === 'svip' && (
+            <span className="text-[10px] font-bold bg-[#B08D57]/20 text-[#B08D57] px-2 py-0.5 rounded-full border border-[#B08D57]/30">SVIP</span>
+          )}
           {auth.user?.role === 'super_admin' && (
             <Link href="/admin" className="text-xs text-[#B08D57]/70 hover:text-[#B08D57]">管理</Link>
           )}
+          <button
+            onClick={async () => {
+              await fetch('/api/auth', { method: 'DELETE' })
+              window.location.reload()
+            }}
+            className="text-xs text-[#F7F5F0]/40 hover:text-red-400 transition"
+          >
+            退出
+          </button>
         </div>
       </header>
 

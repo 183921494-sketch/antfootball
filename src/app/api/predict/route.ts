@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchMatches, parseMatchStatus, type ESPNMatch } from "@/lib/espn-api";
 import { getTeamRating, predictMatch } from "@/lib/prediction-engine";
 import { getMatchOdds } from "@/lib/betting-odds";
+import { verifyToken, getTokenFromCookies } from "@/lib/auth";
+import { createClient } from "@supabase/supabase-js";
 
 // ===== 预测缓存（60秒TTL）=====
 const predCache = new Map<string, { data: any; ts: number }>();
@@ -17,9 +18,9 @@ function setCached(key: string, data: any) {
   predCache.set(key, { data, ts: Date.now() });
 }
 
-// ===== 波胆Top3深度分析 =====
-function buildTop3Analysis(top3: any[], homeName: string, awayName: string) {
-  return top3.map((s, i) => {
+// ===== 波胆Top5深度分析 =====
+function buildTop5Analysis(top5: any[], homeName: string, awayName: string) {
+  return top5.map((s, i) => {
     const [h, a] = s.score.split('-').map(Number);
     const reasons: string[] = [];
     if (h > a) reasons.push(`${homeName}进攻占优，主场压制`);
@@ -29,11 +30,13 @@ function buildTop3Analysis(top3: any[], homeName: string, awayName: string) {
     if (a >= 2) reasons.push(`${awayName}得分能力强（期望${a}球）`);
     if (i === 0) reasons.push('泊松模型预测概率最高比分');
     if (s.marketOdds) {
-      const edge = s.prob - 1 / s.marketOdds;
+      const probVal = s.probability ?? s.prob ?? 0;
+      const edge = probVal - 1 / s.marketOdds;
       if (edge > 0.05) reasons.push(`📈正向价值边缘+${(edge * 100).toFixed(1)}%（庄家赔率被高估）`);
       if (edge < -0.05) reasons.push(`📉负向价值边缘${(edge * 100).toFixed(1)}%（庄家赔率合理或被低估）`);
     }
-    const probLabel = s.prob > 0.15 ? '高概率' : s.prob > 0.08 ? '中概率' : '低概率';
+    const probVal = s.probability ?? s.prob ?? 0;
+    const probLabel = probVal > 0.15 ? '高概率' : probVal > 0.08 ? '中概率' : '低概率';
     return {
       ...s,
       rank: i + 1,
@@ -43,23 +46,7 @@ function buildTop3Analysis(top3: any[], homeName: string, awayName: string) {
   });
 }
 
-// ============ 2026世界杯小组赛分组表 ============
-const GROUP_MAP: Record<string, string> = {
-  'ARG': 'A', 'ECU': 'A', 'POL': 'A', 'SAU': 'A',
-  'FRA': 'B', 'MEX': 'B', 'NZL': 'B', 'UZB': 'B',
-  'ENG': 'C', 'IRN': 'C', 'JPN': 'C', 'USA': 'C',
-  'BRA': 'D', 'CRC': 'D', 'GHA': 'D', 'SUI': 'D',
-  'ESP': 'E', 'PAR': 'E', 'CMR': 'E', 'CZE': 'E',
-  'GER': 'F', 'KEN': 'F', 'PAN': 'F', 'SWE': 'F',
-  'ITA': 'G', 'AUS': 'G', 'URU': 'G', 'VIE': 'G',
-  'NED': 'H', 'EGY': 'H', 'IRQ': 'H', 'SEN': 'H',
-  'POR': 'I', 'ANG': 'I', 'GUI': 'I', 'NGA': 'I',
-  'BEL': 'J', 'UKR': 'J', 'QAT': 'J', 'TUN': 'J',
-  'AUT': 'K', 'CUR': 'K', 'SRB': 'K', 'TUR': 'K',
-  'CAN': 'L', 'CHI': 'L', 'MAR': 'L', 'RSA': 'L',
-};
-
-// 转换为北京时间 YYYY-MM-DD（用于分组显示）
+// 转换为北京时间 YYYY-MM-DD
 function toShangHaiDate(utcDateStr: string): string {
   const d = new Date(utcDateStr);
   return d.toLocaleDateString('zh-CN', {
@@ -68,56 +55,160 @@ function toShangHaiDate(utcDateStr: string): string {
   }).replace(/\//g, '-');
 }
 
-function resolveGroup(abbrev: string, teamName: string): string {
-  if (GROUP_MAP[abbrev]) return GROUP_MAP[abbrev];
-  const nameMap: Record<string, string> = {
-    'Argentina': 'A', 'Ecuador': 'A', 'Poland': 'A', 'Saudi Arabia': 'A',
-    'France': 'B', 'Mexico': 'B', 'New Zealand': 'B', 'Uzbekistan': 'B',
-    'England': 'C', 'Iran': 'C', 'Japan': 'C', 'United States': 'C',
-    'Brazil': 'D', 'Costa Rica': 'D', 'Ghana': 'D', 'Switzerland': 'D',
-    'Spain': 'E', 'Paraguay': 'E', 'Cameroon': 'E', 'Czech Republic': 'E',
-    'Germany': 'F', 'Kenya': 'F', 'Panama': 'F', 'Sweden': 'F',
-    'Italy': 'G', 'Australia': 'G', 'Uruguay': 'G', 'Vietnam': 'G',
-    'Netherlands': 'H', 'Egypt': 'H', 'Iraq': 'H', 'Senegal': 'H',
-    'Portugal': 'I', 'Angola': 'I', 'Guinea': 'I', 'Nigeria': 'I',
-    'Belgium': 'J', 'Ukraine': 'J', 'Qatar': 'J', 'Tunisia': 'J',
-    'Austria': 'K', 'Curaçao': 'K', 'Serbia': 'K', 'Turkey': 'K',
-    'Canada': 'L', 'Chile': 'L', 'Morocco': 'L', 'South Africa': 'L',
-    'Colombia': 'D', 'Croatia': 'J', 'El Salvador': 'B',
-    'Jamaica': 'L', 'Norway': 'G', 'Oman': 'C', 'Wales': 'H',
-    'Mali': 'G', 'Albania': 'A', 'Greece': 'C', 'Hungary': 'F',
-    'Romania': 'E', 'Finland': 'B', 'Slovakia': 'D',
-  };
-  return nameMap[teamName] || '';
+/**
+ * 根据比赛时间判断状态
+ * - 比赛时间 + 105分钟 < 当前时间 → finished（足球比赛约105分钟含补时）
+ * - 比赛时间 ≤ 当前时间 ≤ 比赛时间 + 105分钟 → inprogress
+ * - 当前时间 < 比赛时间 → pre
+ */
+function inferStatus(matchDate: string, dbStatus: string): string {
+  const now = Date.now();
+  const matchTime = new Date(matchDate).getTime();
+  const matchEndEstimate = matchTime + 105 * 60 * 1000; // 105 minutes
+
+  if (now > matchEndEstimate) return 'finished';
+  if (now >= matchTime) return 'inprogress';
+  return 'pre';
+}
+
+// ===== ESPN 已完赛比分缓存 =====
+let espnResultsCache: { data: Map<string, { homeScore: number; awayScore: number }>; ts: number } | null = null;
+const ESPN_CACHE_TTL = 120_000; // 2 minutes
+
+async function getESPNResults(): Promise<Map<string, { homeScore: number; awayScore: number }>> {
+  if (espnResultsCache && Date.now() - espnResultsCache.ts < ESPN_CACHE_TTL) {
+    return espnResultsCache.data;
+  }
+
+  const results = new Map<string, { homeScore: number; awayScore: number }>();
+  try {
+    const res = await fetch('https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=20260611-20260620', {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      for (const ev of data.events || []) {
+        const comp = ev.competitions?.[0];
+        if (!comp) continue;
+        const h = comp.competitors?.find((c: any) => c.homeAway === 'home');
+        const a = comp.competitors?.find((c: any) => c.homeAway === 'away');
+        if (h && a && comp.status?.type?.name === 'STATUS_FULL_TIME') {
+          const key = `${h.team?.shortDisplayName}-${a.team?.shortDisplayName}`;
+          results.set(key, {
+            homeScore: parseInt(h.score) || 0,
+            awayScore: parseInt(a.score) || 0,
+          });
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[predict] ESPN fetch error:', e);
+  }
+
+  espnResultsCache = { data: results, ts: Date.now() };
+  return results;
 }
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const matchId = searchParams.get("matchId");
-    const date = searchParams.get("date");
 
-    const matches = await fetchMatches();
+    // ===== 认证检查 =====
+    let userTier: 'vip' | 'svip' | 'super_admin' = 'vip';
+    let isAuthenticated = false;
 
-    let filtered = matches;
-    if (matchId) {
-      filtered = matches.filter((m) => m.id === matchId);
-    } else if (date) {
-      filtered = matches.filter((m) => m.date.startsWith(
-        date.slice(0, 4) + "-" + date.slice(4, 6) + "-" + date.slice(6, 8)
-      ));
+    const cookieHeader = request.headers.get('cookie');
+    if (cookieHeader) {
+      const token = getTokenFromCookies(cookieHeader);
+      if (token) {
+        const payload = verifyToken(token);
+        if (payload) {
+          isAuthenticated = true;
+          userTier = payload.role === 'super_admin' ? 'super_admin' : (payload.tier || 'vip');
+        }
+      }
     }
 
-    const results: any[] = [];
-    // 并行处理所有比赛预测
-    const batch = await Promise.allSettled(
-      filtered.map(match => buildMatchResponse(match).catch((err: any) => {
-        console.error('[predict] Error for match', match.id, ':', err.message);
-        return null;
-      }))
+    if (!isAuthenticated) {
+      return NextResponse.json(
+        { error: '请先登录', code: 'UNAUTHORIZED' },
+        { status: 401 }
+      );
+    }
+
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
-    for (const r of batch) {
-      if (r.status === 'fulfilled' && r.value) results.push(r.value);
+
+    // 从 Supabase 读取比赛数据
+    let query = supabase
+      .from('matches')
+      .select(`
+        id,
+        match_date,
+        world_cup_stage,
+        group_letter,
+        home_score,
+        away_score,
+        status,
+        stadium,
+        city,
+        home_team:teams!matches_home_team_id_fkey (*),
+        away_team:teams!matches_away_team_id_fkey (*)
+      `)
+      .order('match_date', { ascending: true });
+
+    if (matchId) {
+      query = query.eq('id', matchId);
+    }
+
+    const { data: matches, error: dbError } = await query.limit(300);
+    if (dbError) {
+      console.error('[predict] DB error:', dbError);
+      return NextResponse.json({ error: dbError.message }, { status: 500 });
+    }
+
+    if (!matches || matches.length === 0) {
+      return NextResponse.json({ success: true, count: 0, matches: [] });
+    }
+
+    // 获取 ESPN 真实赛果
+    const espnResults = await getESPNResults();
+
+    // VIP 限制：未开始赛事只清晰显示 2 场，其他模糊
+    let blurredMatchIds: Set<string> | null = null;
+    if (userTier === 'vip') {
+      // 先判断每场比赛的实际状态
+      const matchStatuses = matches.map((m: any) => ({
+        id: m.id,
+        inferredStatus: inferStatus(m.match_date, m.status),
+      }));
+      const upcoming = matchStatuses
+        .filter(ms => ms.inferredStatus === 'pre')
+        .slice(0, 2)
+        .map(ms => ms.id);
+      blurredMatchIds = new Set(
+        matchStatuses
+          .filter(ms => ms.inferredStatus === 'pre' && !upcoming.includes(ms.id))
+          .map(ms => ms.id)
+      );
+    }
+
+    // 构建预测结果
+    const results: any[] = [];
+    for (const match of matches) {
+      try {
+        const prediction = await buildMatchPrediction(match, espnResults);
+        if (prediction) {
+          // VIP 模糊：只模糊未开始的比赛，已完赛/进行中不模糊
+          prediction.blurred = blurredMatchIds ? blurredMatchIds.has(match.id) : false;
+          results.push(prediction);
+        }
+      } catch (e: any) {
+        console.error('[predict] Error for match', match.id, ':', e.message);
+      }
     }
 
     results.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
@@ -125,36 +216,60 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       count: results.length,
-      data: results,
+      matches: results,
     });
   } catch (error: any) {
+    console.error('[predict] Error:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
 
-async function buildMatchResponse(match: ESPNMatch) {
+async function buildMatchPrediction(match: any, espnResults: Map<string, { homeScore: number; awayScore: number }>) {
   // 缓存命中
   const cached = getCached(match.id);
   if (cached) return cached;
 
-  const comp = match.competitions?.[0];
-  if (!comp) return null;
+  const homeTeam = match.home_team;
+  const awayTeam = match.away_team;
+  if (!homeTeam || !awayTeam) return null;
 
-  const home = comp.competitors?.find((c) => c.homeAway === "home");
-  const away = comp.competitors?.find((c) => c.homeAway === "away");
-  if (!home?.team || !away?.team) return null;
+  // 获取球队评分
+  const homeRating = getTeamRating(homeTeam.name_en || homeTeam.name);
+  const awayRating = getTeamRating(awayTeam.name_en || awayTeam.name);
 
-  const homeAbbrev = home.team.abbreviation;
-  const awayAbbrev = away.team.abbreviation;
-  if (!homeAbbrev || !awayAbbrev) return null;
+  // 推断比赛状态
+  const status = inferStatus(match.match_date, match.status);
 
-  const homeRating = getTeamRating(homeAbbrev);
-  const awayRating = getTeamRating(awayAbbrev);
+  // 尝试从 ESPN 获取真实比分
+  let homeScore: number | null = match.home_score;
+  let awayScore: number | null = match.away_score;
 
-  const homeTeamName = home.team.displayName || homeAbbrev;
-  const awayTeamName = away.team.displayName || awayAbbrev;
+  if (status === 'finished' && (homeScore === null || awayScore === null)) {
+    // 尝试从 ESPN 匹配
+    const espnKey1 = `${homeTeam.name_en}-${awayTeam.name_en}`;
+    const espnKey2 = `${awayTeam.name_en}-${homeTeam.name_en}`;
+    const espnResult = espnResults.get(espnKey1) || espnResults.get(espnKey2);
+    if (espnResult) {
+      homeScore = espnResult.homeScore;
+      awayScore = espnResult.awayScore;
+      // 异步更新数据库（不阻塞响应）
+      updateMatchResult(match.id, homeScore, awayScore);
+    } else {
+      // 没有真实比分，用预测引擎生成模拟比分
+      const odds = await getMatchOdds(match.id, homeTeam.name, awayTeam.name);
+      const prediction = predictMatch(homeRating, awayRating, odds.odds1X2 || undefined, odds.oddsOU || undefined, odds.oddsCS?.length ? odds.oddsCS : undefined);
+      if (prediction?.mostLikelyScore) {
+        const [h, a] = prediction.mostLikelyScore.split('-').map(Number);
+        homeScore = h;
+        awayScore = a;
+      }
+    }
+  }
 
-  const odds = await getMatchOdds(match.id, homeTeamName, awayTeamName);
+  // 获取赔率（模拟）
+  const odds = await getMatchOdds(match.id, homeTeam.name, awayTeam.name);
+
+  // 生成预测（已完赛也生成，作为"回溯预测"）
   const prediction = predictMatch(
     homeRating,
     awayRating,
@@ -163,116 +278,59 @@ async function buildMatchResponse(match: ESPNMatch) {
     odds.oddsCS?.length ? odds.oddsCS : undefined
   );
 
-  // Normalize matchStatus to 'pre'/'inprogress'/'finished'
-  const rawStatus = parseMatchStatus(match);
-  const statusMap: Record<string, string> = {
-    'upcoming': 'pre',
-    'live': 'inprogress',
-    'finished': 'finished',
-  };
-  const status = statusMap[rawStatus] || 'pre';
-
-  const matchStatus = match.status;
-  const period = matchStatus?.period?.toString() || '0';
-  const clock = matchStatus?.displayClock || '';
-  const venue = comp.venue?.fullName || '';
-  const group = resolveGroup(homeAbbrev, homeTeamName) || resolveGroup(awayAbbrev, awayTeamName) || '';
-
   const result = {
     matchId: match.id,
-    espnMatchId: match.id,
     homeTeam: {
-      abbr: homeAbbrev,
-      teamName: homeRating.teamName,
+      abbr: homeTeam.country_code || homeTeam.name_en?.slice(0, 3).toUpperCase(),
+      teamName: homeTeam.name,
       logo: '',
-      msiScore: homeRating.msiScore,
-      rosterDepth: homeRating.rosterDepth,
-      tacticalSystem: homeRating.tacticalSystem,
-      keyPlayerImpact: homeRating.keyPlayerImpact,
-      coachDecision: homeRating.coachDecision,
-      matchupData: homeRating.matchupData,
-      mentalResilience: homeRating.mentalResilience,
+      msiScore: homeTeam.msi_score || homeRating.msiScore,
     },
     awayTeam: {
-      abbr: awayAbbrev,
-      teamName: awayRating.teamName,
+      abbr: awayTeam.country_code || awayTeam.name_en?.slice(0, 3).toUpperCase(),
+      teamName: awayTeam.name,
       logo: '',
-      msiScore: awayRating.msiScore,
-      rosterDepth: awayRating.rosterDepth,
-      tacticalSystem: awayRating.tacticalSystem,
-      keyPlayerImpact: awayRating.keyPlayerImpact,
-      coachDecision: awayRating.coachDecision,
-      matchupData: awayRating.matchupData,
-      mentalResilience: awayRating.mentalResilience,
+      msiScore: awayTeam.msi_score || awayRating.msiScore,
     },
-    homeTeamAbbrev: homeAbbrev,
-    awayTeamAbbrev: awayAbbrev,
-    venue,
-    startTime: match.date,
-    date: toShangHaiDate(match.date),
+    homeTeamAbbrev: homeTeam.country_code || homeTeam.name_en?.slice(0, 3).toUpperCase(),
+    awayTeamAbbrev: awayTeam.country_code || awayTeam.name_en?.slice(0, 3).toUpperCase(),
+    venue: match.stadium || '',
+    startTime: match.match_date,
+    date: toShangHaiDate(match.match_date),
     status,
-    period,
-    clock,
-    homeScore: parseInt(home.score || '0'),
-    awayScore: parseInt(away.score || '0'),
-    group,
-    prediction: {
-      recommendation: prediction.recommendation,
+    group: match.group_letter || '',
+    homeScore,
+    awayScore,
+    prediction: prediction ? {
       homeWinProb: prediction.homeWinProb,
       drawProb: prediction.drawProb,
       awayWinProb: prediction.awayWinProb,
-      confidence: prediction.confidenceLevel,
-      confidenceLevel: prediction.confidenceLevel,
-      confidenceLabel: prediction.confidenceLabel,
-      scorePredictions: prediction.scorePredictions,
       expectedHomeGoals: prediction.expectedHomeGoals,
       expectedAwayGoals: prediction.expectedAwayGoals,
-      expectedTotalGoals: prediction.expectedTotalGoals,
-      overProb: prediction.overProb,
-      underProb: prediction.underProb,
-      overUnderLine: prediction.overUnderLine,
-      homeTeam: {
-        abbr: homeAbbrev,
-        teamName: homeRating.teamName,
-        logo: '',
-        msiScore: homeRating.msiScore,
-        rosterDepth: homeRating.rosterDepth,
-        tacticalSystem: homeRating.tacticalSystem,
-        keyPlayerImpact: homeRating.keyPlayerImpact,
-        coachDecision: homeRating.coachDecision,
-        matchupData: homeRating.matchupData,
-        mentalResilience: homeRating.mentalResilience,
-      },
-      awayTeam: {
-        abbr: awayAbbrev,
-        teamName: awayRating.teamName,
-        logo: '',
-        msiScore: awayRating.msiScore,
-        rosterDepth: awayRating.rosterDepth,
-        tacticalSystem: awayRating.tacticalSystem,
-        keyPlayerImpact: awayRating.keyPlayerImpact,
-        coachDecision: awayRating.coachDecision,
-        matchupData: awayRating.matchupData,
-        mentalResilience: awayRating.mentalResilience,
-      },
-      keyInsights: prediction.keyInsights,
-      riskFactors: prediction.riskFactors,
-      insight: prediction.keyInsights?.join('；'),
-      risk: prediction.riskFactors?.join('；'),
-      opportunityFactors: prediction.opportunityFactors,
-      opportunity: prediction.opportunityFactors?.join('；'),
-      methodNote: prediction.methodNote,
-      valueAnalysis: prediction.valueAnalysis,
-      // 波胆Top3深度分析
-      top3Analysis: buildTop3Analysis(
-        prediction.scorePredictions.slice(0, 3),
-        homeRating.teamName,
-        awayRating.teamName
-      ),
-      updatedAt: match.date,
-    },
+      recommendation: prediction.recommendation,
+      scorePredictions: prediction.scorePredictions?.slice(0, 5),
+      top5Analysis: prediction.scorePredictions?.slice(0, 5)
+        ? buildTop5Analysis(prediction.scorePredictions.slice(0, 5), homeTeam.name, awayTeam.name)
+        : undefined,
+    } : null,
   };
 
   setCached(match.id, result);
   return result;
+}
+
+// 异步更新数据库中的比赛结果（不阻塞响应）
+function updateMatchResult(matchId: string, homeScore: number, awayScore: number) {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+  supabase
+    .from('matches')
+    .update({ status: 'finished', home_score: homeScore, away_score: awayScore })
+    .eq('id', matchId)
+    .then(({ error }) => {
+      if (error) console.error('[predict] DB update error:', error);
+      else console.log(`[predict] Updated match ${matchId}: ${homeScore}-${awayScore}`);
+    });
 }

@@ -13,8 +13,8 @@ function toShangHaiDate(utcDateStr: string): string {
 }
 
 // 波胆Top3深度分析
-function buildTop3Analysis(top3: any[], homeName: string, awayName: string) {
-  return top3.map((s, i) => {
+function buildTop5Analysis(top5: any[], homeName: string, awayName: string) {
+  return top5.map((s, i) => {
     const [h, a] = s.score.split('-').map(Number);
     const reasons: string[] = [];
     if (h > a) reasons.push(`${homeName}进攻占优，主场压制`);
@@ -24,11 +24,13 @@ function buildTop3Analysis(top3: any[], homeName: string, awayName: string) {
     if (a >= 2) reasons.push(`${awayName}得分能力强（期望${a}球）`);
     if (i === 0) reasons.push('泊松模型预测概率最高比分');
     if (s.marketOdds) {
-      const edge = s.prob - 1 / s.marketOdds;
+      const probVal = s.probability ?? s.prob ?? 0;
+      const edge = probVal - 1 / s.marketOdds;
       if (edge > 0.05) reasons.push(`📈正向价值边缘+${(edge * 100).toFixed(1)}%`);
       if (edge < -0.05) reasons.push(`📉负向价值边缘${(edge * 100).toFixed(1)}%`);
     }
-    const probLabel = s.prob > 0.15 ? '高概率' : s.prob > 0.08 ? '中概率' : '低概率';
+    const probVal = s.probability ?? s.prob ?? 0;
+    const probLabel = probVal > 0.15 ? '高概率' : probVal > 0.08 ? '中概率' : '低概率';
     return { ...s, rank: i + 1, probLabel, reason: reasons.join('；') };
   });
 }
@@ -149,8 +151,8 @@ async function pollAndUpdate() {
               opportunityFactors: prediction.opportunityFactors,
               methodNote: prediction.methodNote,
               valueAnalysis: prediction.valueAnalysis,
-              top3Analysis: buildTop3Analysis(
-                (prediction.scorePredictions || []).slice(0, 3),
+              top5Analysis: buildTop5Analysis(
+                (prediction.scorePredictions || []).slice(0, 5),
                 homeRating.teamName,
                 awayRating.teamName
               ),

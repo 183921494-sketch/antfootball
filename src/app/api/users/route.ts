@@ -64,68 +64,12 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/users - 创建新用户/合作方
+// POST /api/users — 已禁用，仅管理员可通过 /api/admin/users 创建账号
 export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    
-    // 验证必填字段
-    if (!body.email && !body.phone) {
-      return NextResponse.json(
-        { error: "邮箱或手机号至少提供一个" },
-        { status: 400 }
-      );
-    }
-    
-    if (!body.user_type) {
-      return NextResponse.json(
-        { error: "用户类型(user_type)为必填项" },
-        { status: 400 }
-      );
-    }
-    
-    // 密码加密（实际项目中应使用bcrypt等）
-    const passwordHash = body.password ? `hashed_${body.password}` : null; // 简化处理
-    
-    const { data, error } = await supabase
-      .from("users")
-      .insert([
-        {
-          email: body.email,
-          phone: body.phone,
-          password_hash: passwordHash,
-          user_type: body.user_type,
-          company_name: body.company_name,
-          contact_person: body.contact_person,
-          business_license: body.business_license,
-          address: body.address,
-          city: body.city,
-          province: body.province,
-          is_verified: false,
-          is_active: true,
-        },
-      ])
-      .select()
-      .single();
-    
-    if (error) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 500 }
-      );
-    }
-    
-    return NextResponse.json({
-      success: true,
-      data,
-      message: "用户创建成功",
-    });
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message },
-      { status: 500 }
-    );
-  }
+  return NextResponse.json(
+    { error: "注册已关闭，请联系管理员开通账号" },
+    { status: 403 }
+  )
 }
 
 // PATCH /api/users/:id - 更新用户信息

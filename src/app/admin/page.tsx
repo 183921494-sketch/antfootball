@@ -5,6 +5,7 @@ interface User {
   phone: string
   nickname: string
   role: string
+  tier: 'vip' | 'svip'
   status: string
   createdAt: string
 }
@@ -20,12 +21,14 @@ export default function AdminPage() {
   const [addPhone, setAddPhone] = useState('')
   const [addNickname, setAddNickname] = useState('')
   const [addPassword, setAddPassword] = useState('')
+  const [addTier, setAddTier] = useState<'vip' | 'svip'>('vip')
   const [addLoading, setAddLoading] = useState(false)
 
   // Edit form
   const [editNickname, setEditNickname] = useState('')
   const [editStatus, setEditStatus] = useState('')
   const [editPassword, setEditPassword] = useState('')
+  const [editTier, setEditTier] = useState<'vip' | 'svip'>('vip')
   const [editLoading, setEditLoading] = useState(false)
 
   const fetchUsers = useCallback(async () => {
@@ -52,7 +55,7 @@ export default function AdminPage() {
       const res = await fetch('/api/admin/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: addPhone, nickname: addNickname, password: addPassword })
+        body: JSON.stringify({ phone: addPhone, nickname: addNickname, password: addPassword, tier: addTier })
       })
       const json = await res.json()
       if (res.ok) {
@@ -91,6 +94,7 @@ export default function AdminPage() {
     setEditNickname(u.nickname)
     setEditStatus(u.status)
     setEditPassword('')
+    setEditTier(u.tier || 'vip')
   }
 
   async function handleEdit(e: React.FormEvent) {
@@ -98,7 +102,7 @@ export default function AdminPage() {
     if (!editingUser) return
     setEditLoading(true)
     try {
-      const updates: any = { phone: editingUser.phone, nickname: editNickname, status: editStatus }
+      const updates: any = { phone: editingUser.phone, nickname: editNickname, status: editStatus, tier: editTier }
       if (editPassword) updates.password = editPassword
       const res = await fetch('/api/admin/users', {
         method: 'PUT',
@@ -133,6 +137,7 @@ export default function AdminPage() {
           <p className="text-xs text-[#F7F5F0]/30">账号管理</p>
         </div>
         <div className="flex items-center gap-3">
+          <a href="/admin/logs" className="text-sm text-[#B08D57]/70 hover:text-[#B08D57]">登录日志</a>
           <a href="/" className="text-sm text-[#B08D57]/70 hover:text-[#B08D57]">← 返回预测</a>
           <button
             onClick={async () => { await fetch('/api/auth', { method: 'DELETE' }); location.reload() }}
@@ -167,7 +172,7 @@ export default function AdminPage() {
                   <tr className="border-b border-white/5 text-[#F7F5F0]/40 text-xs">
                     <th className="text-left p-4 font-medium">手机号</th>
                     <th className="text-left p-4 font-medium">昵称</th>
-                    <th className="text-left p-4 font-medium">角色</th>
+                    <th className="text-left p-4 font-medium">等级</th>
                     <th className="text-left p-4 font-medium">状态</th>
                     <th className="text-left p-4 font-medium">注册时间</th>
                     <th className="text-right p-4 font-medium">操作</th>
@@ -179,9 +184,13 @@ export default function AdminPage() {
                       <td className="p-4 font-mono text-[#B08D57]">{u.phone}</td>
                       <td className="p-4">{u.nickname}</td>
                       <td className="p-4">
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${u.role === 'super_admin' ? 'bg-[#B08D57]/20 text-[#B08D57]' : 'bg-white/10 text-[#F7F5F0]/50'}`}>
-                          {u.role === 'super_admin' ? '超级管理员' : '普通用户'}
-                        </span>
+                        {u.role === 'super_admin' ? (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-[#B08D57]/20 text-[#B08D57]">超管</span>
+                        ) : u.tier === 'svip' ? (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-[#B08D57]/15 text-[#B08D57] border border-[#B08D57]/25 font-bold">SVIP</span>
+                        ) : (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-amber-700/20 text-amber-400 border border-amber-600/25 font-bold">VIP</span>
+                        )}
                       </td>
                       <td className="p-4">
                         <span className={`text-xs px-2 py-0.5 rounded-full ${u.status === 'active' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
@@ -219,6 +228,14 @@ export default function AdminPage() {
               <label className="block text-xs text-[#F7F5F0]/50 mb-1">密码（≥6位）</label>
               <input type="password" value={addPassword} onChange={e => setAddPassword(e.target.value)} placeholder="设置密码" className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-[#F7F5F0] focus:outline-none focus:border-[#B08D57]/50" minLength={6} required />
             </div>
+            <div>
+              <label className="block text-xs text-[#F7F5F0]/50 mb-1">会员等级</label>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setAddTier('vip')} className={`flex-1 py-2.5 rounded-lg border text-sm font-bold transition ${addTier === 'vip' ? 'border-amber-600/50 bg-amber-700/20 text-amber-400' : 'border-white/10 text-[#F7F5F0]/30'}`}>VIP</button>
+                <button type="button" onClick={() => setAddTier('svip')} className={`flex-1 py-2.5 rounded-lg border text-sm font-bold transition ${addTier === 'svip' ? 'border-[#B08D57]/50 bg-[#B08D57]/20 text-[#B08D57]' : 'border-white/10 text-[#F7F5F0]/30'}`}>SVIP</button>
+              </div>
+              <p className="text-[10px] text-[#F7F5F0]/20 mt-1">VIP: 可查看2场未开始赛事 | SVIP: 全部解锁</p>
+            </div>
             <button type="submit" disabled={addLoading} className="w-full bg-[#B08D57] hover:bg-[#9a7a4a] disabled:opacity-50 text-black font-bold py-2.5 rounded-lg transition">
               {addLoading ? '添加中...' : '确认添加'}
             </button>
@@ -244,7 +261,14 @@ export default function AdminPage() {
                 </div>
                 <div>
                   <label className="block text-xs text-[#F7F5F0]/50 mb-1">新密码（留空不变）</label>
-                  <input type="password" value={editPassword} onChange={e => setEditPassword(e.target.value)} placeholder="不修改请留空" className="wwdith-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-[#F7F5F0] focus:outline-none focus:border-[#B08D57]/50" />
+                  <input type="password" value={editPassword} onChange={e => setEditPassword(e.target.value)} placeholder="不修改请留空" className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-[#F7F5F0] focus:outline-none focus:border-[#B08D57]/50" />
+                </div>
+                <div>
+                  <label className="block text-xs text-[#F7F5F0]/50 mb-1">会员等级</label>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setEditTier('vip')} className={`flex-1 py-2 rounded-lg border text-sm font-bold transition ${editTier === 'vip' ? 'border-amber-600/50 bg-amber-700/20 text-amber-400' : 'border-white/10 text-[#F7F5F0]/30'}`}>VIP</button>
+                    <button type="button" onClick={() => setEditTier('svip')} className={`flex-1 py-2 rounded-lg border text-sm font-bold transition ${editTier === 'svip' ? 'border-[#B08D57]/50 bg-[#B08D57]/20 text-[#B08D57]' : 'border-white/10 text-[#F7F5F0]/30'}`}>SVIP</button>
+                  </div>
                 </div>
                 <div className="flex gap-2 pt-2">
                   <button type="button" onClick={() => setEditingUser(null)} className="flex-1 py-2 rounded-lg border border-white/10 text-[#F7F5F0]/50 text-sm">取消</button>

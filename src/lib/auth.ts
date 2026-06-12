@@ -6,6 +6,7 @@ const TOKEN_EXPIRY_SEC = 7 * 24 * 60 * 60 // 7 days
 export interface TokenPayload {
   phone: string
   role: 'super_admin' | 'user'
+  tier?: 'vip' | 'svip'
   nickname?: string
   iat: number
   exp: number
@@ -15,6 +16,7 @@ export interface AuthUser {
   phone: string
   passwordHash: string
   role: 'super_admin' | 'user'
+  tier: 'vip' | 'svip'
   nickname: string
   createdAt: string
   status: 'active' | 'disabled'
