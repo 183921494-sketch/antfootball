@@ -5,9 +5,9 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "蚂蚁足球 - 2026世界杯专业赛事分析",
-  description: "为线下彩票店和线上足球预测平台提供专业赛事数据分析服务，后置分佣模式，无收益不收费。",
-  keywords: ["蚂蚁足球", "世界杯", "足球分析", "赛事预测", "数据分析"],
+  title: "蚂蚁足球 - 2026世界杯高精度预测",
+  description: "个人高精度世界杯赛事预测工具：胜平负、比分、进球数，MSI六维模型+实时数据驱动",
+  keywords: ["蚂蚁足球", "世界杯", "足球预测", "赛事分析", "比分预测"],
 };
 
 export default function RootLayout({
