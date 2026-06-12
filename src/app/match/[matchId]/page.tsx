@@ -264,6 +264,52 @@ export default function MatchDetailPage({ params }: { params: { matchId: string 
       </div>
 
       <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+        {/* 赛果回顾（完赛后显示） */}
+        {isFinished && (
+          <section>
+            <h2 className="text-sm font-bold text-[#B08D57] mb-3">📝 赛果回顾</h2>
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+              {/* 预测 vs 实际 */}
+              <div className="mb-4 p-3 bg-[#B08D57]/10 rounded-lg border border-[#B08D57]/20">
+                <div className="text-xs text-[#F7F5F0]/50 mb-2">预测 vs 实际</div>
+                <div className="flex items-center justify-between">
+                  <div className="text-center">
+                    <div className="text-xs text-[#F7F5F0]/40">预测结果</div>
+                    <div className="text-lg font-bold text-[#B08D57]">
+                      {pred.recommendation === "home" ? d.homeTeam.teamName : pred.recommendation === "away" ? d.awayTeam.teamName : "平局"}
+                    </div>
+                  </div>
+                  <div className="text-2xl text-[#F7F5F0]/30">VS</div>
+                  <div className="text-center">
+                    <div className="text-xs text-[#F7F5F0]/40">实际结果</div>
+                    <div className="text-lg font-bold text-[#F7F5F0]">
+                      {parseInt(d.homeScore) > parseInt(d.awayScore) ? d.homeTeam.teamName : parseInt(d.homeScore) < parseInt(d.awayScore) ? d.awayTeam.teamName : "平局"}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-2 text-center text-xs">
+                  {((pred.recommendation === "home" && parseInt(d.homeScore) > parseInt(d.awayScore)) ||
+                    (pred.recommendation === "away" && parseInt(d.homeScore) < parseInt(d.awayScore)) ||
+                    (pred.recommendation === "draw" && d.homeScore === d.awayScore))
+                    ? <span className="text-green-400">✅ 预测正确</span>
+                    : <span className="text-red-400">❌ 预测错误</span>
+                  }
+                </div>
+              </div>
+              
+              {/* 实际比分高亮 */}
+              <div className="text-center p-3 bg-white/[0.04] rounded-lg">
+                <div className="text-xs text-[#F7F5F0]/40 mb-2">实际比分</div>
+                <div className="text-3xl font-bold tabular-nums">
+                  <span className="text-green-400">{d.homeScore}</span>
+                  <span className="text-[#B08D57] mx-2">:</span>
+                  <span className="text-red-400">{d.awayScore}</span>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
         {/* 1. 胜平负预测（实时更新） */}
         <section>
           <h2 className="text-sm font-bold text-[#B08D57] mb-3 flex items-center gap-2">
