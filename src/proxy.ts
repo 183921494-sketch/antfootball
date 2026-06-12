@@ -1,22 +1,15 @@
 /**
  * 蚂蚁足球 - 路由保护 (Next.js 16 proxy.ts)
- * 保护 /admin/* 和 /partner/* 路由
- * 公开路由: / /reports /api/* /admin/login /partner/login
+ * 保护 /admin/* 和 /match/* 路由
+ * 公开路由: /login /api/auth /_next/* /favicon.ico
  */
 import { NextRequest, NextResponse } from "next/server";
+import { verifyToken } from "./lib/auth";
 
-const PUBLIC_PATHS = ["/", "/reports", "/api/", "/admin/login", "/partner/login"];
+const PUBLIC_PATHS = ["/login", "/api/auth", "/_next", "/favicon.ico"];
 
 function isPublicPath(pathname: string): boolean {
-  return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p));
-}
-
-function verifyAdminToken(token: string | undefined): boolean {
-  return typeof token === "string" && token.startsWith("admin_");
-}
-
-function verifyPartnerToken(token: string | undefined): boolean {
-  return typeof token === "string" && token.startsWith("partner_");
+  return PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(p));
 }
 
 export async function proxy(request: NextRequest): Promise<Response> {
@@ -27,40 +20,31 @@ export async function proxy(request: NextRequest): Promise<Response> {
     return NextResponse.next();
   }
 
-  // 保护 /admin/* 路由（排除 /admin/login）
-  if (pathname.startsWith("/admin") && pathname !== "/admin/login") {
-    const token =
-      request.cookies.get("admin_token")?.value ||
-      request.headers.get("x-admin-token") || undefined;
-
-    if (!verifyAdminToken(token)) {
-      return NextResponse.redirect(new URL("/admin/login", request.url));
+  // 保护 /admin/* 路由 (仅超级管理员)
+  if (pathname.startsWith("/admin")) {
+    const token = request.cookies.get("auth_token")?.value;
+    const payload = token ? verifyToken(token) : null;
+    if (!payload || payload.role !== "super_admin") {
+      return NextResponse.redirect(new URL("/login", request.url));
     }
-
-    // 注入 header 让后续 API 路由可以验证
-    const response = NextResponse.next();
-    if (token) response.headers.set("x-admin-token", token);
-    return response;
+    return NextResponse.next();
   }
 
-  // 保护 /partner/* 路由（排除 /partner/login）
-  if (pathname.startsWith("/partner") && pathname !== "/partner/login") {
-    const token =
-      request.cookies.get("partner_token")?.value ||
-      request.headers.get("x-partner-token") || undefined;
-
-    if (!verifyPartnerToken(token)) {
-      return NextResponse.redirect(new URL("/partner/login", request.url));
+  // 保护 /match/* 路由 (需登录)
+  if (pathname.startsWith("/match")) {
+    const token = request.cookies.get("auth_token")?.value;
+    const payload = token ? verifyToken(token) : null;
+    if (!payload) {
+      const url = new URL("/login", request.url);
+      url.searchParams.set("redirect", pathname);
+      return NextResponse.redirect(url);
     }
-
-    const response = NextResponse.next();
-    if (token) response.headers.set("x-partner-token", token);
-    return response;
+    return NextResponse.next();
   }
 
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/partner/:path*"],
+  matcher: ["/admin/:path*", "/match/:path*"],
 };
