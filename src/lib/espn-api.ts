@@ -66,6 +66,11 @@ export interface ESPNMatch {
     };
     competitors: ESPNCompetitor[];
     broadcast: string;
+    odds?: any;
+    playByPlayAvailable?: boolean;
+    playByPlayAthletes?: any;
+    situation?: any;
+    details?: any[];
   }[];
   season: {
     year: number;

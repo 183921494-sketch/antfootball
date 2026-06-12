@@ -2,6 +2,7 @@ import { fetchMatches, parseMatchStatus, formatMatchDate, getStageLabel, type ES
 import { getTeamRating, predictMatch, type MatchPrediction } from "@/lib/prediction-engine";
 import { getMatchOdds } from "@/lib/betting-odds";
 import Link from "next/link";
+import { Radio } from "lucide-react";
 
 interface PredictionWithMeta extends MatchPrediction {
   espnMatchId: string;
@@ -175,7 +176,16 @@ export default async function HomePage() {
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
             </span>
           </div>
-          <p className="text-sm md:text-base text-[#B08D57] mb-4">高精度预测 · 胜平负 / 比分 / 进球数</p>
+          <div className="flex items-center gap-3 mb-4">
+            <p className="text-sm md:text-base text-[#B08D57]">高精度预测 · 胜平负 / 比分 / 进球数</p>
+            <Link
+              href="/live"
+              className="inline-flex items-center gap-1.5 text-xs bg-red-500/20 hover:bg-red-500/30 text-red-400 hover:text-red-300 px-3 py-1.5 rounded-full transition-all border border-red-500/20"
+            >
+              <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
+              实时直播
+            </Link>
+          </div>
 
           {/* Stats */}
           <div className="grid grid-cols-3 gap-3">

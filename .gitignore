@@ -49,3 +49,5 @@ check_seed_data.py
 *.sql
 !supabase/migrations/*.sql
 migrations/
+
+.vercel
