@@ -86,7 +86,7 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="text-4xl mb-2">🐜</div>
+          <img src="/logo.png" alt="蚂蚁足球" className="w-16 h-16 mx-auto mb-2" />
           <h1 className="text-2xl font-bold text-[#B08D57]">蚂蚁足球</h1>
           <p className="text-[#F7F5F0]/40 text-sm mt-1">高精度世界杯预测</p>
         </div>

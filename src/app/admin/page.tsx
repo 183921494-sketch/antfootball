@@ -129,7 +129,7 @@ export default function AdminPage() {
       {/* Header */}
       <header className="bg-[#111111] border-b border-white/5 px-6 py-4 flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-bold text-[#B08D57]">🐜 蚂蚁足球 · 管理后台</h1>
+          <h1 className="text-lg font-bold text-[#B08D57]">蚂蚁足球 · 管理后台</h1>
           <p className="text-xs text-[#F7F5F0]/30">账号管理</p>
         </div>
         <div className="flex items-center gap-3">

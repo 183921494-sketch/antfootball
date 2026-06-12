@@ -194,7 +194,7 @@ export default function HomePage() {
     return (
       <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center px-4">
         <div className="text-center">
-          <div className="text-5xl mb-4">🐜</div>
+          <img src="/logo.png" alt="蚂蚁足球" className="w-20 h-20 mx-auto mb-4" />
           <h1 className="text-3xl font-bold text-[#B08D57] mb-2">蚂蚁足球</h1>
           <p className="text-[#F7F5F0]/40 mb-8 text-sm">高精度世界杯预测系统</p>
           <Link href="/login" className="inline-block bg-[#B08D57] hover:bg-[#9a7a4a] text-black font-bold px-8 py-3 rounded-lg transition">
@@ -219,7 +219,7 @@ export default function HomePage() {
       {/* Header */}
       <header className="sticky top-0 z-50 bg-[#111111]/90 backdrop-blur border-b border-white/5 px-4 py-3 flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-bold text-[#B08D57]">🐜 蚂蚁足球</h1>
+          <h1 className="text-lg font-bold text-[#B08D57]">蚂蚁足球</h1>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-[#F7F5F0]/40">
