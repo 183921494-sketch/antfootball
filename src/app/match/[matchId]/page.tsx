@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useRef } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import Link from 'next/link'
 
 // ============ Types ============
@@ -309,8 +309,8 @@ function AnalysisReport({ pred, homeName, awayName }: { pred: Prediction; homeNa
 
 // ============ Main Page ============
 
-export default function MatchPage({ params }: { params: { matchId: string } }) {
-  const { matchId } = params
+export default function MatchPage({ params }: { params: Promise<{ matchId: string }> }) {
+  const { matchId } = React.use(params)
   const [data, setData] = useState<MatchData | null>(null)
   const [liveUpdate, setLiveUpdate] = useState<any>(null)
   const [connected, setConnected] = useState(false)

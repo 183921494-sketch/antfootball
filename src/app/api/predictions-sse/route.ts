@@ -3,6 +3,36 @@ import { verifyToken } from '@/lib/auth'
 import { fetchMatches, parseMatchStatus } from '@/lib/espn-api'
 import { predictMatch, getTeamRating } from '@/lib/prediction-engine'
 
+// 转换为北京时间 YYYY-MM-DD
+function toShangHaiDate(utcDateStr: string): string {
+  const d = new Date(utcDateStr);
+  return d.toLocaleDateString('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).replace(/\//g, '-');
+}
+
+// 波胆Top3深度分析
+function buildTop3Analysis(top3: any[], homeName: string, awayName: string) {
+  return top3.map((s, i) => {
+    const [h, a] = s.score.split('-').map(Number);
+    const reasons: string[] = [];
+    if (h > a) reasons.push(`${homeName}进攻占优，主场压制`);
+    if (a > h) reasons.push(`${awayName}反击效率高，客场抢分`);
+    if (h === a) reasons.push('双方势均力敌，平局压力大');
+    if (h >= 2) reasons.push(`${homeName}进攻火力强（期望${h}球）`);
+    if (a >= 2) reasons.push(`${awayName}得分能力强（期望${a}球）`);
+    if (i === 0) reasons.push('泊松模型预测概率最高比分');
+    if (s.marketOdds) {
+      const edge = s.prob - 1 / s.marketOdds;
+      if (edge > 0.05) reasons.push(`📈正向价值边缘+${(edge * 100).toFixed(1)}%`);
+      if (edge < -0.05) reasons.push(`📉负向价值边缘${(edge * 100).toFixed(1)}%`);
+    }
+    const probLabel = s.prob > 0.15 ? '高概率' : s.prob > 0.08 ? '中概率' : '低概率';
+    return { ...s, rank: i + 1, probLabel, reason: reasons.join('；') };
+  });
+}
+
 // Global cache: matchId → latest prediction + score
 let cache: Map<string, {
   prediction: any
@@ -74,9 +104,6 @@ async function pollAndUpdate() {
           };
           const normalizedStatus = statusMap[status] || status;
 
-          const matchDate = new Date(match.date)
-          const dateStr = matchDate.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', month: 'long', day: 'numeric' })
-
           cache.set(match.id, {
             prediction: {
               recommendation: prediction.recommendation,
@@ -93,13 +120,40 @@ async function pollAndUpdate() {
               overProb: prediction.overProb,
               underProb: prediction.underProb,
               overUnderLine: prediction.overUnderLine,
-              homeTeam: prediction.homeTeam.teamName,
-              awayTeam: prediction.awayTeam.teamName,
+              homeTeam: {
+                abbr: homeAbbrev,
+                teamName: homeRating.teamName,
+                logo: '',
+                msiScore: homeRating.msiScore,
+                rosterDepth: homeRating.rosterDepth,
+                tacticalSystem: homeRating.tacticalSystem,
+                keyPlayerImpact: homeRating.keyPlayerImpact,
+                coachDecision: homeRating.coachDecision,
+                matchupData: homeRating.matchupData,
+                mentalResilience: homeRating.mentalResilience,
+              },
+              awayTeam: {
+                abbr: awayAbbrev,
+                teamName: awayRating.teamName,
+                logo: '',
+                msiScore: awayRating.msiScore,
+                rosterDepth: awayRating.rosterDepth,
+                tacticalSystem: awayRating.tacticalSystem,
+                keyPlayerImpact: awayRating.keyPlayerImpact,
+                coachDecision: awayRating.coachDecision,
+                matchupData: awayRating.matchupData,
+                mentalResilience: awayRating.mentalResilience,
+              },
               keyInsights: prediction.keyInsights,
               riskFactors: prediction.riskFactors,
               opportunityFactors: prediction.opportunityFactors,
               methodNote: prediction.methodNote,
               valueAnalysis: prediction.valueAnalysis,
+              top3Analysis: buildTop3Analysis(
+                (prediction.scorePredictions || []).slice(0, 3),
+                homeRating.teamName,
+                awayRating.teamName
+              ),
             },
             homeScore,
             awayScore,
@@ -107,10 +161,32 @@ async function pollAndUpdate() {
             period,
             clock,
             startTime: match.date,
-            date: dateStr,
+            date: toShangHaiDate(match.date),
             group: '',
-            homeTeam: homeTeamName,
-            awayTeam: awayTeamName,
+            homeTeam: {
+              abbr: homeAbbrev,
+              teamName: homeRating.teamName,
+              logo: '',
+              msiScore: homeRating.msiScore,
+              rosterDepth: homeRating.rosterDepth,
+              tacticalSystem: homeRating.tacticalSystem,
+              keyPlayerImpact: homeRating.keyPlayerImpact,
+              coachDecision: homeRating.coachDecision,
+              matchupData: homeRating.matchupData,
+              mentalResilience: homeRating.mentalResilience,
+            },
+            awayTeam: {
+              abbr: awayAbbrev,
+              teamName: awayRating.teamName,
+              logo: '',
+              msiScore: awayRating.msiScore,
+              rosterDepth: awayRating.rosterDepth,
+              tacticalSystem: awayRating.tacticalSystem,
+              keyPlayerImpact: awayRating.keyPlayerImpact,
+              coachDecision: awayRating.coachDecision,
+              matchupData: awayRating.matchupData,
+              mentalResilience: awayRating.mentalResilience,
+            },
             homeTeamAbbrev: homeAbbrev,
             awayTeamAbbrev: awayAbbrev,
             venue: match.competitions?.[0]?.venue?.fullName || '',

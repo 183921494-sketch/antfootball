@@ -570,10 +570,26 @@ export const PRESET_RATINGS: Record<string, Omit<TeamRating, "msiScore" | "attac
 // 未知球队默认评分（用于覆盖48队所有球队）
 const DEFAULT_RATING = { rosterDepth: 5.0, tacticalSystem: 5.0, keyPlayerImpact: 5.0, coachDecision: 5.0, matchupData: 5.0, mentalResilience: 5.0 };
 
+// 英文缩写→中文名备用映射（用于未预设的球队）
+const ABBREV_CN_MAP: Record<string, string> = {
+  CHN: '中国', TWN: '中国台北', HKG: '中国香港', PRK: '朝鲜',
+  RUS: '俄罗斯', ISL: '冰岛', WAL: '威尔士', SCO: '苏格兰',
+  IRL: '爱尔兰', NIR: '北爱尔兰', ISR: '以色列',
+  CIV: '科特迪瓦', CGO: '刚果(布)', COD: '刚果(金)',
+  BEN: '贝宁', GUI: '几内亚', GAB: '加蓬', TOG: '多哥',
+  BFA: '布基纳法索', MLT: '马耳他', GEO: '格鲁吉亚', ARM: '亚美尼亚',
+  AZE: '阿塞拜疆', KAZ: '哈萨克斯坦', KGZ: '吉尔吉斯斯坦',
+  UGA: '乌干达', ZAM: '赞比亚', MWI: '马拉维', MOZ: '莫桑比克',
+  NAM: '纳米比亚', BOT: '博茨瓦纳', MAD: '马达加斯加',
+  MTN: '毛里塔尼亚', SSD: '南苏丹', TLS: '东帝汶',
+  GUM: '关岛', TAH: '塔希提', FJI: '斐济', LCA: '圣卢西亚',
+};
+
 export function getTeamRating(abbreviation: string): TeamRating {
   const preset = PRESET_RATINGS[abbreviation];
   const src = preset ?? DEFAULT_RATING;
-  const rating: TeamRating = { ...src, teamId: abbreviation.toLowerCase(), teamName: preset?.teamName ?? abbreviation, abbreviation, msiScore: 0, attackRating: 0, defenseRating: 0 };
+  const cnName = preset?.teamName ?? ABBREV_CN_MAP[abbreviation] ?? abbreviation;
+  const rating: TeamRating = { ...src, teamId: abbreviation.toLowerCase(), teamName: cnName, abbreviation, msiScore: 0, attackRating: 0, defenseRating: 0 };
   rating.msiScore = calculateMSI(rating);
   return rating;
 }

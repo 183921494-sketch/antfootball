@@ -3,15 +3,55 @@ import { fetchMatches, parseMatchStatus, type ESPNMatch } from "@/lib/espn-api";
 import { getTeamRating, predictMatch } from "@/lib/prediction-engine";
 import { getMatchOdds } from "@/lib/betting-odds";
 
+// ===== 预测缓存（60秒TTL）=====
+const predCache = new Map<string, { data: any; ts: number }>();
+const CACHE_TTL = 60_000;
+
+function getCached(key: string): any | null {
+  const e = predCache.get(key);
+  if (e && Date.now() - e.ts < CACHE_TTL) return e.data;
+  predCache.delete(key);
+  return null;
+}
+function setCached(key: string, data: any) {
+  predCache.set(key, { data, ts: Date.now() });
+}
+
+// ===== 波胆Top3深度分析 =====
+function buildTop3Analysis(top3: any[], homeName: string, awayName: string) {
+  return top3.map((s, i) => {
+    const [h, a] = s.score.split('-').map(Number);
+    const reasons: string[] = [];
+    if (h > a) reasons.push(`${homeName}进攻占优，主场压制`);
+    if (a > h) reasons.push(`${awayName}反击效率高，客场抢分`);
+    if (h === a) reasons.push(`双方势均力敌，平局压力大`);
+    if (h >= 2) reasons.push(`${homeName}进攻火力强（期望${h}球）`);
+    if (a >= 2) reasons.push(`${awayName}得分能力强（期望${a}球）`);
+    if (i === 0) reasons.push('泊松模型预测概率最高比分');
+    if (s.marketOdds) {
+      const edge = s.prob - 1 / s.marketOdds;
+      if (edge > 0.05) reasons.push(`📈正向价值边缘+${(edge * 100).toFixed(1)}%（庄家赔率被高估）`);
+      if (edge < -0.05) reasons.push(`📉负向价值边缘${(edge * 100).toFixed(1)}%（庄家赔率合理或被低估）`);
+    }
+    const probLabel = s.prob > 0.15 ? '高概率' : s.prob > 0.08 ? '中概率' : '低概率';
+    return {
+      ...s,
+      rank: i + 1,
+      probLabel,
+      reason: reasons.join('；'),
+    };
+  });
+}
+
 // ============ 2026世界杯小组赛分组表 ============
 const GROUP_MAP: Record<string, string> = {
-  'ARG': 'A', 'PER': 'A', 'POL': 'A', 'SAU': 'A',
+  'ARG': 'A', 'ECU': 'A', 'POL': 'A', 'SAU': 'A',
   'FRA': 'B', 'MEX': 'B', 'NZL': 'B', 'UZB': 'B',
   'ENG': 'C', 'IRN': 'C', 'JPN': 'C', 'USA': 'C',
   'BRA': 'D', 'CRC': 'D', 'GHA': 'D', 'SUI': 'D',
   'ESP': 'E', 'PAR': 'E', 'CMR': 'E', 'CZE': 'E',
   'GER': 'F', 'KEN': 'F', 'PAN': 'F', 'SWE': 'F',
-  'ITA': 'G', 'IND': 'G', 'URU': 'G', 'VIE': 'G',
+  'ITA': 'G', 'AUS': 'G', 'URU': 'G', 'VIE': 'G',
   'NED': 'H', 'EGY': 'H', 'IRQ': 'H', 'SEN': 'H',
   'POR': 'I', 'ANG': 'I', 'GUI': 'I', 'NGA': 'I',
   'BEL': 'J', 'UKR': 'J', 'QAT': 'J', 'TUN': 'J',
@@ -19,26 +59,34 @@ const GROUP_MAP: Record<string, string> = {
   'CAN': 'L', 'CHI': 'L', 'MAR': 'L', 'RSA': 'L',
 };
 
+// 转换为北京时间 YYYY-MM-DD（用于分组显示）
+function toShangHaiDate(utcDateStr: string): string {
+  const d = new Date(utcDateStr);
+  return d.toLocaleDateString('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).replace(/\//g, '-');
+}
+
 function resolveGroup(abbrev: string, teamName: string): string {
   if (GROUP_MAP[abbrev]) return GROUP_MAP[abbrev];
   const nameMap: Record<string, string> = {
-    'Argentina': 'A', 'Peru': 'A', 'Poland': 'A', 'Saudi Arabia': 'A',
+    'Argentina': 'A', 'Ecuador': 'A', 'Poland': 'A', 'Saudi Arabia': 'A',
     'France': 'B', 'Mexico': 'B', 'New Zealand': 'B', 'Uzbekistan': 'B',
     'England': 'C', 'Iran': 'C', 'Japan': 'C', 'United States': 'C',
     'Brazil': 'D', 'Costa Rica': 'D', 'Ghana': 'D', 'Switzerland': 'D',
     'Spain': 'E', 'Paraguay': 'E', 'Cameroon': 'E', 'Czech Republic': 'E',
     'Germany': 'F', 'Kenya': 'F', 'Panama': 'F', 'Sweden': 'F',
-    'Italy': 'G', 'India': 'G', 'Uruguay': 'G', 'Vietnam': 'G',
+    'Italy': 'G', 'Australia': 'G', 'Uruguay': 'G', 'Vietnam': 'G',
     'Netherlands': 'H', 'Egypt': 'H', 'Iraq': 'H', 'Senegal': 'H',
     'Portugal': 'I', 'Angola': 'I', 'Guinea': 'I', 'Nigeria': 'I',
     'Belgium': 'J', 'Ukraine': 'J', 'Qatar': 'J', 'Tunisia': 'J',
     'Austria': 'K', 'Curaçao': 'K', 'Serbia': 'K', 'Turkey': 'K',
     'Canada': 'L', 'Chile': 'L', 'Morocco': 'L', 'South Africa': 'L',
-    'Australia': 'B', 'South Korea': 'E', 'Denmark': 'G', 'Algeria': 'I',
-    'Colombia': 'D', 'Croatia': 'J', 'Ecuador': 'A', 'El Salvador': 'B',
-    'Jamaica': 'L', 'Norway': 'G', 'Oman': 'C', 'Philippines': 'A',
-    'Wales': 'H', 'Mali': 'G', 'Albania': 'A', 'Greece': 'C',
-    'Hungary': 'F', 'Romania': 'E', 'Finland': 'B', 'Slovakia': 'D',
+    'Colombia': 'D', 'Croatia': 'J', 'El Salvador': 'B',
+    'Jamaica': 'L', 'Norway': 'G', 'Oman': 'C', 'Wales': 'H',
+    'Mali': 'G', 'Albania': 'A', 'Greece': 'C', 'Hungary': 'F',
+    'Romania': 'E', 'Finland': 'B', 'Slovakia': 'D',
   };
   return nameMap[teamName] || '';
 }
@@ -61,13 +109,15 @@ export async function GET(request: NextRequest) {
     }
 
     const results: any[] = [];
-    for (const match of filtered) {
-      try {
-        const item = await buildMatchResponse(match);
-        if (item) results.push(item);
-      } catch (err: any) {
-        console.error('[DEBUG] Error for match', match.id, ':', err.message);
-      }
+    // 并行处理所有比赛预测
+    const batch = await Promise.allSettled(
+      filtered.map(match => buildMatchResponse(match).catch((err: any) => {
+        console.error('[predict] Error for match', match.id, ':', err.message);
+        return null;
+      }))
+    );
+    for (const r of batch) {
+      if (r.status === 'fulfilled' && r.value) results.push(r.value);
     }
 
     results.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
@@ -83,6 +133,10 @@ export async function GET(request: NextRequest) {
 }
 
 async function buildMatchResponse(match: ESPNMatch) {
+  // 缓存命中
+  const cached = getCached(match.id);
+  if (cached) return cached;
+
   const comp = match.competitions?.[0];
   if (!comp) return null;
 
@@ -118,34 +172,50 @@ async function buildMatchResponse(match: ESPNMatch) {
   };
   const status = statusMap[rawStatus] || 'pre';
 
-  const matchDate = new Date(match.date);
-  const dateStr = matchDate.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', month: 'long', day: 'numeric' });
-
   const matchStatus = match.status;
   const period = matchStatus?.period?.toString() || '0';
   const clock = matchStatus?.displayClock || '';
   const venue = comp.venue?.fullName || '';
-  const city = comp.venue?.address?.city || '';
   const group = resolveGroup(homeAbbrev, homeTeamName) || resolveGroup(awayAbbrev, awayTeamName) || '';
 
-  return {
-    // Flat match fields (no 'prediction' wrapper at top level)
+  const result = {
     matchId: match.id,
     espnMatchId: match.id,
-    homeTeam: homeTeamName,
-    awayTeam: awayTeamName,
+    homeTeam: {
+      abbr: homeAbbrev,
+      teamName: homeRating.teamName,
+      logo: '',
+      msiScore: homeRating.msiScore,
+      rosterDepth: homeRating.rosterDepth,
+      tacticalSystem: homeRating.tacticalSystem,
+      keyPlayerImpact: homeRating.keyPlayerImpact,
+      coachDecision: homeRating.coachDecision,
+      matchupData: homeRating.matchupData,
+      mentalResilience: homeRating.mentalResilience,
+    },
+    awayTeam: {
+      abbr: awayAbbrev,
+      teamName: awayRating.teamName,
+      logo: '',
+      msiScore: awayRating.msiScore,
+      rosterDepth: awayRating.rosterDepth,
+      tacticalSystem: awayRating.tacticalSystem,
+      keyPlayerImpact: awayRating.keyPlayerImpact,
+      coachDecision: awayRating.coachDecision,
+      matchupData: awayRating.matchupData,
+      mentalResilience: awayRating.mentalResilience,
+    },
     homeTeamAbbrev: homeAbbrev,
     awayTeamAbbrev: awayAbbrev,
     venue,
     startTime: match.date,
-    date: dateStr,
+    date: toShangHaiDate(match.date),
     status,
     period,
     clock,
     homeScore: parseInt(home.score || '0'),
     awayScore: parseInt(away.score || '0'),
     group,
-    // Prediction as nested object (matching frontend MatchData interface)
     prediction: {
       recommendation: prediction.recommendation,
       homeWinProb: prediction.homeWinProb,
@@ -161,13 +231,48 @@ async function buildMatchResponse(match: ESPNMatch) {
       overProb: prediction.overProb,
       underProb: prediction.underProb,
       overUnderLine: prediction.overUnderLine,
-      homeTeam: prediction.homeTeam.teamName,
-      awayTeam: prediction.awayTeam.teamName,
+      homeTeam: {
+        abbr: homeAbbrev,
+        teamName: homeRating.teamName,
+        logo: '',
+        msiScore: homeRating.msiScore,
+        rosterDepth: homeRating.rosterDepth,
+        tacticalSystem: homeRating.tacticalSystem,
+        keyPlayerImpact: homeRating.keyPlayerImpact,
+        coachDecision: homeRating.coachDecision,
+        matchupData: homeRating.matchupData,
+        mentalResilience: homeRating.mentalResilience,
+      },
+      awayTeam: {
+        abbr: awayAbbrev,
+        teamName: awayRating.teamName,
+        logo: '',
+        msiScore: awayRating.msiScore,
+        rosterDepth: awayRating.rosterDepth,
+        tacticalSystem: awayRating.tacticalSystem,
+        keyPlayerImpact: awayRating.keyPlayerImpact,
+        coachDecision: awayRating.coachDecision,
+        matchupData: awayRating.matchupData,
+        mentalResilience: awayRating.mentalResilience,
+      },
       keyInsights: prediction.keyInsights,
       riskFactors: prediction.riskFactors,
+      insight: prediction.keyInsights?.join('；'),
+      risk: prediction.riskFactors?.join('；'),
       opportunityFactors: prediction.opportunityFactors,
+      opportunity: prediction.opportunityFactors?.join('；'),
       methodNote: prediction.methodNote,
       valueAnalysis: prediction.valueAnalysis,
+      // 波胆Top3深度分析
+      top3Analysis: buildTop3Analysis(
+        prediction.scorePredictions.slice(0, 3),
+        homeRating.teamName,
+        awayRating.teamName
+      ),
+      updatedAt: match.date,
     },
   };
+
+  setCached(match.id, result);
+  return result;
 }

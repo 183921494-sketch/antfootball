@@ -17,6 +17,16 @@ interface TeamInfo {
   mentalResilience: number
 }
 
+interface Top3Item {
+  score: string
+  probability: number
+  marketOdds?: number
+  valueEdge?: number
+  rank: number
+  probLabel: string
+  reason: string
+}
+
 interface Prediction {
   recommendation: string
   homeWinProb: number
@@ -26,6 +36,7 @@ interface Prediction {
   confidenceLevel?: number
   confidenceLabel?: string
   scorePredictions: { score: string; probability: number; marketOdds?: number; valueEdge?: number }[]
+  top3Analysis?: Top3Item[]
   expectedHomeGoals: number
   expectedAwayGoals: number
   expectedTotalGoals: number
@@ -157,10 +168,21 @@ function PredictionCard({ item, liveData, compact }: {
           </div>
         </div>
 
-        {/* Recommendation + Top score */}
+        {/* Recommendation + Top3 波胆 */}
         <div className="flex items-center justify-between mt-1.5">
           <span className={`text-[10px] font-bold ${recColor}`}>📌 {recText}</span>
-          {p.scorePredictions?.[0] && (
+          {p.top3Analysis && p.top3Analysis.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              {p.top3Analysis.slice(0, 3).map((s) => (
+                <span key={s.score} className={`text-[10px] font-mono ${
+                  s.rank === 1 ? 'text-[#B08D57] font-bold' : s.rank === 2 ? 'text-[#F7F5F0]/60' : 'text-[#F7F5F0]/35'
+                }`}>
+                  {s.score} {s.rank === 1 ? '🔥' : ''}{(s.probability * 100).toFixed(0)}%
+                </span>
+              ))}
+            </div>
+          )}
+          {!p.top3Analysis && p.scorePredictions?.[0] && (
             <span className="text-[10px] text-[#B08D57]">
               波胆 {p.scorePredictions[0].score} ({(p.scorePredictions[0].probability * 100).toFixed(1)}%)
             </span>
@@ -232,7 +254,14 @@ export default function HomePage() {
   useEffect(() => {
     fetch('/api/predict?all=1')
       .then(r => r.json())
-      .then(j => { setData(j); setLoading(false) })
+      .then(j => {
+        if (j?.data && Array.isArray(j.data)) {
+          setData({ matches: j.data })
+        } else {
+          setData({ matches: [] })
+        }
+        setLoading(false)
+      })
       .catch(() => setLoading(false))
   }, [])
 
@@ -357,27 +386,29 @@ export default function HomePage() {
           <p className="text-[#F7F5F0]/30 text-xs mt-1">高精度世界杯预测 · 胜平负 | 波胆 | 进球数 | 六维分析</p>
         </div>
 
-        {/* Tab bar */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
-          <TabButton active={activeTab === 'all'} label="全部" count={tabCounts.all} onClick={() => setActiveTab('all')} />
-          <TabButton active={activeTab === 'live'} label="直播中" count={tabCounts.live} onClick={() => setActiveTab('live')} />
-          <TabButton active={activeTab === 'upcoming'} label="未开始" count={tabCounts.upcoming} onClick={() => setActiveTab('upcoming')} />
-          <TabButton active={activeTab === 'finished'} label="已结束" count={tabCounts.finished} onClick={() => setActiveTab('finished')} />
-          <div className="flex-1" />
-          {/* Group toggle */}
-          <div className="flex items-center bg-white/5 rounded-full p-0.5 flex-shrink-0">
-            <button
-              onClick={() => setGroupBy('date')}
-              className={`px-2.5 py-1 rounded-full text-[10px] transition ${groupBy === 'date' ? 'bg-[#B08D57] text-black font-medium' : 'text-[#F7F5F0]/50'}`}
-            >
-              按日期
-            </button>
-            <button
-              onClick={() => setGroupBy('group')}
-              className={`px-2.5 py-1 rounded-full text-[10px] transition ${groupBy === 'group' ? 'bg-[#B08D57] text-black font-medium' : 'text-[#F7F5F0]/50'}`}
-            >
-              按组别
-            </button>
+        {/* Tab bar - sticky under header */}
+        <div className="sticky top-[52px] z-40 bg-[#0a0a0a] pb-1">
+          <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide">
+            <TabButton active={activeTab === 'all'} label="全部" count={tabCounts.all} onClick={() => setActiveTab('all')} />
+            <TabButton active={activeTab === 'live'} label="直播中" count={tabCounts.live} onClick={() => setActiveTab('live')} />
+            <TabButton active={activeTab === 'upcoming'} label="未开始" count={tabCounts.upcoming} onClick={() => setActiveTab('upcoming')} />
+            <TabButton active={activeTab === 'finished'} label="已结束" count={tabCounts.finished} onClick={() => setActiveTab('finished')} />
+            <div className="flex-1" />
+            {/* Group toggle */}
+            <div className="flex items-center bg-white/5 rounded-full p-0.5 flex-shrink-0">
+              <button
+                onClick={() => setGroupBy('date')}
+                className={`px-2.5 py-1 rounded-full text-[10px] transition ${groupBy === 'date' ? 'bg-[#B08D57] text-black font-medium' : 'text-[#F7F5F0]/50'}`}
+              >
+                按日期
+              </button>
+              <button
+                onClick={() => setGroupBy('group')}
+                className={`px-2.5 py-1 rounded-full text-[10px] transition ${groupBy === 'group' ? 'bg-[#B08D57] text-black font-medium' : 'text-[#F7F5F0]/50'}`}
+              >
+                按组别
+              </button>
+            </div>
           </div>
         </div>
 
