@@ -1,41 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchMatches, parseMatchStatus, type ESPNMatch } from "@/lib/espn-api";
 import { getTeamRating, predictMatch, type MatchPrediction } from "@/lib/prediction-engine";
-import { getMatchOdds, getMarketConsensus, oddsToImpliedProb, fairProbToOdds } from "@/lib/betting-odds";
+import { getMatchOdds, oddsToImpliedProb } from "@/lib/betting-odds";
 
 // ============ 2026世界杯小组赛分组表 ============
-// 基于FIFA官方分组（48队12组，每组4队）
 const GROUP_MAP: Record<string, string> = {
-  // A组
-  'ARG': 'A', 'PER': 'A', 'POL': 'A', 'KSA': 'A',
-  // B组
+  'ARG': 'A', 'PER': 'A', 'POL': 'A', 'SAU': 'A',
   'FRA': 'B', 'MEX': 'B', 'NZL': 'B', 'UZB': 'B',
-  // C组
   'ENG': 'C', 'IRN': 'C', 'JPN': 'C', 'USA': 'C',
-  // D组
   'BRA': 'D', 'CRC': 'D', 'GHA': 'D', 'SUI': 'D',
-  // E组
   'ESP': 'E', 'PAR': 'E', 'CMR': 'E', 'CZE': 'E',
-  // F组
   'GER': 'F', 'KEN': 'F', 'PAN': 'F', 'SWE': 'F',
-  // G组
   'ITA': 'G', 'IND': 'G', 'URU': 'G', 'VIE': 'G',
-  // H组
   'NED': 'H', 'EGY': 'H', 'IRQ': 'H', 'SEN': 'H',
-  // I组
   'POR': 'I', 'ANG': 'I', 'GUI': 'I', 'NGA': 'I',
-  // J组
   'BEL': 'J', 'UKR': 'J', 'QAT': 'J', 'TUN': 'J',
-  // K组
   'AUT': 'K', 'CUR': 'K', 'SRB': 'K', 'TUR': 'K',
-  // L组
   'CAN': 'L', 'CHI': 'L', 'MAR': 'L', 'RSA': 'L',
 };
 
-// Fallback: try to match by team name
 function resolveGroup(abbrev: string, teamName: string): string {
   if (GROUP_MAP[abbrev]) return GROUP_MAP[abbrev];
-  // Try name matching for teams not in map
   const nameMap: Record<string, string> = {
     'Argentina': 'A', 'Peru': 'A', 'Poland': 'A', 'Saudi Arabia': 'A',
     'France': 'B', 'Mexico': 'B', 'New Zealand': 'B', 'Uzbekistan': 'B',
@@ -52,105 +37,66 @@ function resolveGroup(abbrev: string, teamName: string): string {
     'Australia': 'B', 'South Korea': 'E', 'Denmark': 'G', 'Algeria': 'I',
     'Colombia': 'D', 'Croatia': 'J', 'Ecuador': 'A', 'El Salvador': 'B',
     'Jamaica': 'L', 'Norway': 'G', 'Oman': 'C', 'Philippines': 'A',
+    'Wales': 'H', 'Mali': 'G', 'Albania': 'A', 'Greece': 'C',
+    'Hungary': 'F', 'Romania': 'E', 'Finland': 'B', 'Slovakia': 'D',
   };
   return nameMap[teamName] || '';
 }
 
-/**
- * GET /api/predict
- * 
- * 查询参数：
- * - matchId: ESPN比赛ID（获取单场预测）
- * - date: 日期 YYYYMMDD（获取某日预测）
- * - all: 1（获取全部预测）
- * 
- * 返回（整合博彩赔率）：
- * 1. 胜负平（1X2）：市场赔率 + 融合概率 + 价值投注分析
- * 2. 波胆：泊松分布 Top5 + 市场赔率 + 价值边缘
- */
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const matchId = searchParams.get("matchId");
     const date = searchParams.get("date");
 
-    // 获取ESPN实时赛程
     const matches = await fetchMatches();
 
-    // 过滤
     let filtered = matches;
     if (matchId) {
       filtered = matches.filter((m) => m.id === matchId);
     } else if (date) {
-      const dateStr = date;
       filtered = matches.filter((m) => m.date.startsWith(
-        dateStr.slice(0, 4) + "-" + dateStr.slice(4, 6) + "-" + dateStr.slice(6, 8)
+        date.slice(0, 4) + "-" + date.slice(4, 6) + "-" + date.slice(6, 8)
       ));
     }
 
-    // 为每场比赛生成预测（整合博彩赔率）
-    const predictions: PredictionWithMeta[] = [];
+    const results: any[] = [];
     for (const match of filtered) {
-      const pred = await generatePredictionFromESPN(match);
-      if (pred) predictions.push(pred);
+      const item = buildMatchResponse(match);
+      if (item) results.push(item);
     }
 
-    // 按时间排序
-    predictions.sort((a, b) => new Date(a.matchDate).getTime() - new Date(b.matchDate).getTime());
+    results.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
 
     return NextResponse.json({
       success: true,
-      count: predictions.length,
-      bettingIntegrated: true,
-      data: predictions,
+      count: results.length,
+      data: results,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
 
-interface PredictionWithMeta extends MatchPrediction {
-  espnMatchId: string;
-  matchDate: string;
-  matchStatus: "upcoming" | "live" | "finished";
-  homeScore: string;
-  awayScore: string;
-  venue: string;
-  city: string;
-  group: string; // 小组赛分组 A-L
-  // 博彩赔率原始数据
-  rawOdds?: {
-    homeOdds: number;
-    drawOdds: number;
-    awayOdds: number;
-    ouLine: number;
-    overOdds: number;
-    underOdds: number;
-    marketMargin: string;
-  };
-}
-
-async function generatePredictionFromESPN(match: ESPNMatch): Promise<PredictionWithMeta | null> {
+async function buildMatchResponse(match: ESPNMatch) {
   const comp = match.competitions?.[0];
   if (!comp) return null;
 
   const home = comp.competitors?.find((c) => c.homeAway === "home");
   const away = comp.competitors?.find((c) => c.homeAway === "away");
-  if (!home || !away) return null;
+  if (!home?.team || !away?.team) return null;
 
-  const homeAbbrev = home.team?.abbreviation;
-  const awayAbbrev = away.team?.abbreviation;
+  const homeAbbrev = home.team.abbreviation;
+  const awayAbbrev = away.team.abbreviation;
   if (!homeAbbrev || !awayAbbrev) return null;
 
   const homeRating = getTeamRating(homeAbbrev);
   const awayRating = getTeamRating(awayAbbrev);
 
-  // 获取博彩赔率
-  const homeTeamName = home.team?.displayName || homeAbbrev;
-  const awayTeamName = away.team?.displayName || awayAbbrev;
-  const odds = await getMatchOdds(match.id, homeTeamName, awayTeamName);
+  const homeTeamName = home.team.displayName || homeAbbrev;
+  const awayTeamName = away.team.displayName || awayAbbrev;
 
-  // 融合预测（市场赔率 + MSI模型）
+  const odds = await getMatchOdds(match.id, homeTeamName, awayTeamName);
   const prediction = predictMatch(
     homeRating,
     awayRating,
@@ -159,35 +105,63 @@ async function generatePredictionFromESPN(match: ESPNMatch): Promise<PredictionW
     odds.oddsCS?.length ? odds.oddsCS : undefined
   );
 
-  // 提取原始赔率数据
-  let rawOdds: PredictionWithMeta["rawOdds"] | undefined;
-  if (odds.odds1X2 && odds.oddsOU) {
-    const imp = oddsToImpliedProb(odds.odds1X2);
-    rawOdds = {
-      homeOdds: odds.odds1X2.home,
-      drawOdds: odds.odds1X2.draw,
-      awayOdds: odds.odds1X2.away,
-      ouLine: odds.oddsOU.line,
-      overOdds: odds.oddsOU.overOdds,
-      underOdds: odds.oddsOU.underOdds,
-      marketMargin: `${(imp.juice * 100).toFixed(1)}%`,
-    };
-  }
+  // Normalize matchStatus to 'pre'/'inprogress'/'finished'
+  const rawStatus = parseMatchStatus(match);
+  const statusMap: Record<string, string> = {
+    'upcoming': 'pre',
+    'live': 'inprogress',
+    'finished': 'finished',
+  };
+  const status = statusMap[rawStatus] || 'pre';
 
-  // 解析日期和分组
-  const matchDate = match.date;
+  const matchDate = new Date(match.date);
+  const dateStr = matchDate.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', month: 'long', day: 'numeric' });
+
+  const matchStatus = match.status;
+  const period = matchStatus?.period?.toString() || '0';
+  const clock = matchStatus?.displayClock || '';
+  const venue = comp.venue?.fullName || '';
+  const city = comp.venue?.address?.city || '';
   const group = resolveGroup(homeAbbrev, homeTeamName) || resolveGroup(awayAbbrev, awayTeamName) || '';
 
   return {
-    ...prediction,
+    // Flat match fields (no 'prediction' wrapper at top level)
+    matchId: match.id,
     espnMatchId: match.id,
-    matchDate,
-    matchStatus: parseMatchStatus(match),
-    homeScore: home.score,
-    awayScore: away.score,
-    venue: comp.venue?.fullName || "",
-    city: comp.venue?.address?.city || "",
+    homeTeam: homeRating,
+    awayTeam: awayRating,
+    venue,
+    startTime: match.date,
+    date: dateStr,
+    status,
+    period,
+    clock,
+    homeScore: parseInt(home.score || '0'),
+    awayScore: parseInt(away.score || '0'),
     group,
-    ...(rawOdds ? { rawOdds } : {}),
+    // Prediction as nested object (matching frontend MatchData interface)
+    prediction: {
+      recommendation: prediction.recommendation,
+      homeWinProb: prediction.homeWinProb,
+      drawProb: prediction.drawProb,
+      awayWinProb: prediction.awayWinProb,
+      confidence: prediction.confidenceLevel,
+      confidenceLevel: prediction.confidenceLevel,
+      confidenceLabel: prediction.confidenceLabel,
+      scorePredictions: prediction.scorePredictions,
+      expectedHomeGoals: prediction.expectedHomeGoals,
+      expectedAwayGoals: prediction.expectedAwayGoals,
+      expectedTotalGoals: prediction.expectedTotalGoals,
+      overProb: prediction.overProb,
+      underProb: prediction.underProb,
+      overUnderLine: prediction.overUnderLine,
+      homeTeam: prediction.homeTeam,
+      awayTeam: prediction.awayTeam,
+      keyInsights: prediction.keyInsights,
+      riskFactors: prediction.riskFactors,
+      opportunityFactors: prediction.opportunityFactors,
+      methodNote: prediction.methodNote,
+      valueAnalysis: prediction.valueAnalysis,
+    },
   };
 }

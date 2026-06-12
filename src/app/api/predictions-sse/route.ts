@@ -8,9 +8,15 @@ let cache: Map<string, {
   prediction: any
   homeScore: number
   awayScore: number
-  status: string
+  status: string // 'pre' | 'inprogress' | 'finished'
   period: string
   clock: string
+  startTime: string
+  date: string
+  group: string
+  homeTeam: any
+  awayTeam: any
+  venue: string
   updatedAt: number
 }> = new Map()
 
@@ -53,19 +59,55 @@ async function pollAndUpdate() {
         const homeRating = getTeamRating(homeAbbrev)
         const awayRating = getTeamRating(awayAbbrev)
 
-        const prediction = predictMatch(
-          homeRating,
-          awayRating
-        )
+        const prediction = predictMatch(homeRating, awayRating)
 
         if (prediction) {
+          // Map 'pre'/'inprogress'/'post' from ESPN state to our format
+          const statusMap: Record<string, string> = {
+            'pre': 'pre',
+            'in': 'inprogress',
+            'post': 'finished',
+          };
+          const normalizedStatus = statusMap[status] || status;
+
+          const matchDate = new Date(match.date)
+          const dateStr = matchDate.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', month: 'long', day: 'numeric' })
+
           cache.set(match.id, {
-            prediction,
+            prediction: {
+              recommendation: prediction.recommendation,
+              homeWinProb: prediction.homeWinProb,
+              drawProb: prediction.drawProb,
+              awayWinProb: prediction.awayWinProb,
+              confidence: prediction.confidenceLevel,
+              confidenceLevel: prediction.confidenceLevel,
+              confidenceLabel: prediction.confidenceLabel,
+              scorePredictions: prediction.scorePredictions,
+              expectedHomeGoals: prediction.expectedHomeGoals,
+              expectedAwayGoals: prediction.expectedAwayGoals,
+              expectedTotalGoals: prediction.expectedTotalGoals,
+              overProb: prediction.overProb,
+              underProb: prediction.underProb,
+              overUnderLine: prediction.overUnderLine,
+              homeTeam: prediction.homeTeam,
+              awayTeam: prediction.awayTeam,
+              keyInsights: prediction.keyInsights,
+              riskFactors: prediction.riskFactors,
+              opportunityFactors: prediction.opportunityFactors,
+              methodNote: prediction.methodNote,
+              valueAnalysis: prediction.valueAnalysis,
+            },
             homeScore,
             awayScore,
-            status,
+            status: normalizedStatus,
             period,
             clock,
+            startTime: match.date,
+            date: dateStr,
+            group: '',
+            homeTeam: homeRating,
+            awayTeam: awayRating,
+            venue: match.competitions?.[0]?.venue?.fullName || '',
             updatedAt: now
           })
         }
