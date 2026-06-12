@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchMatches, parseMatchStatus, parseScore, type ESPNMatch } from "@/lib/espn-api";
+import { fetchMatches, parseMatchStatus, type ESPNMatch } from "@/lib/espn-api";
 import { getTeamRating, predictMatch, type MatchPrediction } from "@/lib/prediction-engine";
+import { getMatchOdds, getMarketConsensus, oddsToImpliedProb, fairProbToOdds } from "@/lib/betting-odds";
 
 /**
  * GET /api/predict
@@ -9,6 +10,10 @@ import { getTeamRating, predictMatch, type MatchPrediction } from "@/lib/predict
  * - matchId: ESPN比赛ID（获取单场预测）
  * - date: 日期 YYYYMMDD（获取某日预测）
  * - all: 1（获取全部预测）
+ * 
+ * 返回（整合博彩赔率）：
+ * 1. 胜负平（1X2）：市场赔率 + 融合概率 + 价值投注分析
+ * 2. 波胆：泊松分布 Top5 + 市场赔率 + 价值边缘
  */
 export async function GET(request: NextRequest) {
   try {
@@ -24,14 +29,16 @@ export async function GET(request: NextRequest) {
     if (matchId) {
       filtered = matches.filter((m) => m.id === matchId);
     } else if (date) {
-      const dateStr = date; // YYYYMMDD
-      filtered = matches.filter((m) => m.date.startsWith(dateStr.slice(0, 4) + "-" + dateStr.slice(4, 6) + "-" + dateStr.slice(6, 8)));
+      const dateStr = date;
+      filtered = matches.filter((m) => m.date.startsWith(
+        dateStr.slice(0, 4) + "-" + dateStr.slice(4, 6) + "-" + dateStr.slice(6, 8)
+      ));
     }
 
-    // 为每场比赛生成预测
-    const predictions = [];
+    // 为每场比赛生成预测（整合博彩赔率）
+    const predictions: PredictionWithMeta[] = [];
     for (const match of filtered) {
-      const pred = generatePredictionFromESPN(match);
+      const pred = await generatePredictionFromESPN(match);
       if (pred) predictions.push(pred);
     }
 
@@ -41,6 +48,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       count: predictions.length,
+      bettingIntegrated: true,
       data: predictions,
     });
   } catch (error: any) {
@@ -56,9 +64,19 @@ interface PredictionWithMeta extends MatchPrediction {
   awayScore: string;
   venue: string;
   city: string;
+  // 博彩赔率原始数据
+  rawOdds?: {
+    homeOdds: number;
+    drawOdds: number;
+    awayOdds: number;
+    ouLine: number;
+    overOdds: number;
+    underOdds: number;
+    marketMargin: string;
+  };
 }
 
-function generatePredictionFromESPN(match: ESPNMatch): PredictionWithMeta | null {
+async function generatePredictionFromESPN(match: ESPNMatch): Promise<PredictionWithMeta | null> {
   const comp = match.competitions?.[0];
   if (!comp) return null;
 
@@ -74,14 +92,37 @@ function generatePredictionFromESPN(match: ESPNMatch): PredictionWithMeta | null
   const awayRating = getTeamRating(awayAbbrev);
   if (!homeRating || !awayRating) return null;
 
-  // 判断是否中立场地（世界杯小组赛一般非真正主场）
-  const isNeutral = true; // 世界杯基本都是中立场地，除了揭幕战东道主
-  const isHostNation = home.team?.name === "Mexico" || home.team?.name === "United States" || home.team?.name === "Canada";
+  // 获取博彩赔率
+  const homeTeamName = home.team?.displayName || homeAbbrev;
+  const awayTeamName = away.team?.displayName || awayAbbrev;
+  const odds = await getMatchOdds(match.id, homeTeamName, awayTeamName);
 
-  const prediction = predictMatch(homeRating, awayRating, {
-    neutralVenue: isNeutral && !isHostNation,
-    homeAdvantage: isHostNation ? 0.10 : 0, // 东道主有微弱优势
-  });
+  // 东道主判断
+  const isHostNation = homeTeamName === "Mexico" || homeTeamName === "United States" || homeTeamName === "Canada";
+
+  // 融合预测（市场赔率 + MSI模型）
+  const prediction = predictMatch(
+    homeRating,
+    awayRating,
+    odds.odds1X2 || undefined,
+    odds.oddsOU || undefined,
+    odds.oddsCS?.length ? odds.oddsCS : undefined
+  );
+
+  // 提取原始赔率数据
+  let rawOdds: PredictionWithMeta["rawOdds"] | undefined;
+  if (odds.odds1X2 && odds.oddsOU) {
+    const imp = oddsToImpliedProb(odds.odds1X2);
+    rawOdds = {
+      homeOdds: odds.odds1X2.home,
+      drawOdds: odds.odds1X2.draw,
+      awayOdds: odds.odds1X2.away,
+      ouLine: odds.oddsOU.line,
+      overOdds: odds.oddsOU.overOdds,
+      underOdds: odds.oddsOU.underOdds,
+      marketMargin: `${(imp.juice * 100).toFixed(1)}%`,
+    };
+  }
 
   return {
     ...prediction,
@@ -92,5 +133,6 @@ function generatePredictionFromESPN(match: ESPNMatch): PredictionWithMeta | null
     awayScore: away.score,
     venue: comp.venue?.fullName || "",
     city: comp.venue?.address?.city || "",
+    ...(rawOdds ? { rawOdds } : {}),
   };
 }

@@ -1,5 +1,6 @@
 import { fetchMatches, parseMatchStatus, formatMatchDate, parseTeamStats, type ESPNMatch, type ESPNCompetitor } from "@/lib/espn-api";
 import { getTeamRating, predictMatch, type MatchPrediction, type TeamRating } from "@/lib/prediction-engine";
+import { getMatchOdds } from "@/lib/betting-odds";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
@@ -20,6 +21,11 @@ interface PredictionDetail extends MatchPrediction {
   awayStats: Record<string, string>;
   homeForm: string;
   awayForm: string;
+  rawOdds?: {
+    homeOdds: number; drawOdds: number; awayOdds: number;
+    ouLine: number; overOdds: number; underOdds: number;
+    marketMargin: string;
+  };
 }
 
 async function getMatchDetail(matchId: string): Promise<PredictionDetail | null> {
@@ -42,11 +48,16 @@ async function getMatchDetail(matchId: string): Promise<PredictionDetail | null>
   const awayRating = getTeamRating(awayAbbrev);
   if (!homeRating || !awayRating) return null;
 
-  const isHostNation = ["Mexico", "United States", "Canada"].includes(home.team?.name);
-  const prediction = predictMatch(homeRating, awayRating, {
-    neutralVenue: !isHostNation,
-    homeAdvantage: isHostNation ? 0.10 : 0,
-  });
+  const homeTeamName = home.team?.displayName || homeAbbrev;
+  const awayTeamName = away.team?.displayName || awayAbbrev;
+  const odds = await getMatchOdds(match.id, homeTeamName, awayTeamName);
+  const prediction = predictMatch(
+    homeRating,
+    awayRating,
+    odds.odds1X2 || undefined,
+    odds.oddsOU || undefined,
+    odds.oddsCS?.length ? odds.oddsCS : undefined
+  );
 
   return {
     ...prediction,
@@ -59,6 +70,17 @@ async function getMatchDetail(matchId: string): Promise<PredictionDetail | null>
     awayAbbrev,
     homeLogo: home.team?.logo || "",
     awayLogo: away.team?.logo || "",
+    ...(odds.odds1X2 && odds.oddsOU ? {
+      rawOdds: {
+        homeOdds: odds.odds1X2.home,
+        drawOdds: odds.odds1X2.draw,
+        awayOdds: odds.odds1X2.away,
+        ouLine: odds.oddsOU.line,
+        overOdds: odds.oddsOU.overOdds,
+        underOdds: odds.oddsOU.underOdds,
+        marketMargin: `${((1/odds.odds1X2.home + 1/odds.odds1X2.draw + 1/odds.odds1X2.away - 1) * 100).toFixed(1)}%`,
+      }
+    } : {}),
     venue: comp.venue?.fullName || "",
     city: comp.venue?.address?.city || "",
     attendance: comp.attendance || 0,

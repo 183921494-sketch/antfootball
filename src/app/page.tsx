@@ -1,5 +1,6 @@
 import { fetchMatches, parseMatchStatus, formatMatchDate, getStageLabel, type ESPNMatch } from "@/lib/espn-api";
 import { getTeamRating, predictMatch, type MatchPrediction } from "@/lib/prediction-engine";
+import { getMatchOdds } from "@/lib/betting-odds";
 import Link from "next/link";
 
 interface PredictionWithMeta extends MatchPrediction {
@@ -33,12 +34,16 @@ async function getPredictions(): Promise<PredictionWithMeta[]> {
     const awayRating = getTeamRating(awayAbbrev);
     if (!homeRating || !awayRating) continue;
 
-    const isHostNation = ["Mexico", "United States", "Canada"].includes(home.team?.name);
-
-    const prediction = predictMatch(homeRating, awayRating, {
-      neutralVenue: !isHostNation,
-      homeAdvantage: isHostNation ? 0.10 : 0,
-    });
+    const homeTeamName = home.team?.displayName || homeAbbrev;
+    const awayTeamName = away.team?.displayName || awayAbbrev;
+    const odds = await getMatchOdds(match.id, homeTeamName, awayTeamName);
+    const prediction = predictMatch(
+      homeRating,
+      awayRating,
+      odds.odds1X2 || undefined,
+      odds.oddsOU || undefined,
+      odds.oddsCS?.length ? odds.oddsCS : undefined
+    );
 
     results.push({
       ...prediction,
