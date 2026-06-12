@@ -1,8 +1,18 @@
-import { fetchMatches, parseMatchStatus, formatMatchDate, getStageLabel, type ESPNMatch } from "@/lib/espn-api";
-import { getTeamRating, predictMatch, type MatchPrediction } from "@/lib/prediction-engine";
-import { getMatchOdds } from "@/lib/betting-odds";
+"use client";
+
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { Radio } from "lucide-react";
+import { useLiveStream } from "@/components/live-stream-hook";
+import type { MatchPrediction } from "@/lib/prediction-engine";
+
+/**
+ * 首页 - 预测栏目（客户端渲染 + 实时比分更新）
+ *
+ * 数据来源：
+ * 1. 初始加载：/api/predict?all=1（SSR备用已移除，改用客户端fetch）
+ * 2. 实时更新：SSE /api/live（比分变化 → 自动刷新对应卡片）
+ */
 
 interface PredictionWithMeta extends MatchPrediction {
   espnMatchId: string;
@@ -16,98 +26,92 @@ interface PredictionWithMeta extends MatchPrediction {
   city: string;
 }
 
-async function getPredictions(): Promise<PredictionWithMeta[]> {
-  const matches = await fetchMatches();
-  const results: PredictionWithMeta[] = [];
-
-  for (const match of matches) {
-    const comp = match.competitions?.[0];
-    if (!comp) continue;
-    const home = comp.competitors?.find((c) => c.homeAway === "home");
-    const away = comp.competitors?.find((c) => c.homeAway === "away");
-    if (!home || !away) continue;
-
-    const homeAbbrev = home.team?.abbreviation;
-    const awayAbbrev = away.team?.abbreviation;
-    if (!homeAbbrev || !awayAbbrev) continue;
-
-    const homeRating = getTeamRating(homeAbbrev);
-    const awayRating = getTeamRating(awayAbbrev);
-    if (!homeRating || !awayRating) continue;
-
-    const homeTeamName = home.team?.displayName || homeAbbrev;
-    const awayTeamName = away.team?.displayName || awayAbbrev;
-    const odds = await getMatchOdds(match.id, homeTeamName, awayTeamName);
-    const prediction = predictMatch(
-      homeRating,
-      awayRating,
-      odds.odds1X2 || undefined,
-      odds.oddsOU || undefined,
-      odds.oddsCS?.length ? odds.oddsCS : undefined
-    );
-
-    results.push({
-      ...prediction,
-      espnMatchId: match.id,
-      matchDate: match.date,
-      matchStatus: parseMatchStatus(match),
-      homeScore: home.score,
-      awayScore: away.score,
-      homeAbbrev,
-      awayAbbrev,
-      venue: comp.venue?.fullName || "",
-      city: comp.venue?.address?.city || "",
-    });
-  }
-
-  return results.sort((a, b) => new Date(a.matchDate).getTime() - new Date(b.matchDate).getTime());
-}
+// ──────────────────────────────────────────────
+// 子组件：单场预测卡片（支持实时比分 props）
+// ──────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
-  if (status === "finished") return <span className="text-xs bg-gray-500/20 text-gray-400 px-2 py-0.5 rounded">完场</span>;
-  if (status === "live") return <span className="text-xs bg-red-500/20 text-red-400 px-2 py-0.5 rounded animate-pulse">直播中</span>;
+  if (status === "finished")
+    return <span className="text-xs bg-gray-500/20 text-gray-400 px-2 py-0.5 rounded">完场</span>;
+  if (status === "live")
+    return <span className="text-xs bg-red-500/20 text-red-400 px-2 py-0.5 rounded animate-pulse">直播中</span>;
   return <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded">未开</span>;
 }
 
 function ConfidenceBadge({ level, label }: { level: number; label: string }) {
-  const color = level >= 0.80 ? "text-green-400 bg-green-500/20"
-    : level >= 0.65 ? "text-blue-400 bg-blue-500/20"
-    : level >= 0.50 ? "text-yellow-400 bg-yellow-500/20"
-    : "text-red-400 bg-red-500/20";
+  const color =
+    level >= 0.8 ? "text-green-400 bg-green-500/20" :
+    level >= 0.65 ? "text-blue-400 bg-blue-500/20" :
+    level >= 0.5 ? "text-yellow-400 bg-yellow-500/20" :
+    "text-red-400 bg-red-500/20";
   return <span className={`text-xs px-2 py-0.5 rounded ${color}`}>置信度{label}</span>;
 }
 
-function PredictionRow({ pred }: { pred: PredictionWithMeta }) {
-  const { date, time } = formatMatchDate(pred.matchDate);
-  const isFinished = pred.matchStatus === "finished";
-  const recLabel = pred.recommendation === "home" ? pred.homeTeam.teamName
-    : pred.recommendation === "away" ? pred.awayTeam.teamName : "平局";
-  const recColor = pred.recommendation === "home" ? "text-green-400"
-    : pred.recommendation === "away" ? "text-red-400" : "text-yellow-400";
+function PredictionRow({
+  pred,
+  liveHomeScore,
+  liveAwayScore,
+  liveStatus,
+  liveClock,
+}: {
+  pred: PredictionWithMeta;
+  liveHomeScore?: string;
+  liveAwayScore?: string;
+  liveStatus?: "upcoming" | "live" | "finished";
+  liveClock?: string;
+}) {
+  const homeScore = liveHomeScore ?? pred.homeScore;
+  const awayScore = liveAwayScore ?? pred.awayScore;
+  const status = liveStatus ?? pred.matchStatus;
+  const isFinished = status === "finished";
+  const isLive = status === "live";
+
+  const recLabel =
+    pred.recommendation === "home" ? pred.homeTeam.teamName :
+    pred.recommendation === "away" ? pred.awayTeam.teamName : "平局";
+  const recColor =
+    pred.recommendation === "home" ? "text-green-400" :
+    pred.recommendation === "away" ? "text-red-400" : "text-yellow-400";
+
+  // 格式化日期
+  const d = new Date(pred.matchDate);
+  const dateStr = d.toLocaleDateString("zh-CN", { month: "short", day: "numeric" });
+  const timeStr = d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
 
   return (
     <Link href={`/match/${pred.espnMatchId}`} className="block">
-      <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 hover:border-[#B08D57]/30 hover:bg-white/[0.05] transition-all active:scale-[0.99] cursor-pointer">
+      <div className={`bg-white/[0.03] border rounded-xl p-4 transition-all active:scale-[0.99] cursor-pointer
+        ${isLive ? "border-red-500/20 hover:border-red-500/40 shadow-[0_0_10px_rgba(239,68,68,0.05)]" :
+          "border-white/[0.06] hover:border-[#B08D57]/30 hover:bg-white/[0.05]"}`}
+      >
         {/* 日期行 */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <span className="text-xs text-[#B08D57]">{date}</span>
-            <span className="text-xs text-[#F7F5F0]/60">{time}</span>
-            <StatusBadge status={pred.matchStatus} />
+            <span className="text-xs text-[#B08D57]">{dateStr}</span>
+            <span className="text-xs text-[#F7F5F0]/60">{timeStr}</span>
+            {isLive && liveClock && (
+              <span className="text-xs text-red-300 font-mono">{liveClock}</span>
+            )}
+            <StatusBadge status={status} />
           </div>
           <ConfidenceBadge level={pred.confidenceLevel} label={pred.confidenceLabel} />
         </div>
 
-        {/* 对阵 */}
+        {/* 对阵 + 实时比分 */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex-1 text-right">
             <div className="text-base font-bold text-[#F7F5F0]">{pred.homeTeam.teamName}</div>
             <div className="text-xs text-[#F7F5F0]/40">MSI {pred.homeTeam.msiScore.toFixed(1)}</div>
           </div>
           <div className="px-4 text-center min-w-[80px]">
-            {isFinished ? (
-              <div className="text-2xl font-bold text-[#F7F5F0]">
-                {pred.homeScore}<span className="text-[#B08D57] mx-1">:</span>{pred.awayScore}
+            {isFinished || isLive ? (
+              <div className="text-2xl font-bold tabular-nums">
+                <span className={isLive ? "text-green-400" : "text-[#F7F5F0]"}>{homeScore}</span>
+                <span className="text-[#B08D57] mx-1">:</span>
+                <span className={isLive ? "text-red-400" : "text-[#F7F5F0]"}>{awayScore}</span>
+                {isLive && (
+                  <span className="block text-[10px] text-red-400 animate-pulse mt-0.5">LIVE</span>
+                )}
               </div>
             ) : (
               <div className="text-lg font-bold text-[#B08D57]">VS</div>
@@ -119,9 +123,8 @@ function PredictionRow({ pred }: { pred: PredictionWithMeta }) {
           </div>
         </div>
 
-        {/* 预测行 */}
+        {/* 概率条 */}
         <div className="flex items-center gap-2">
-          {/* 概率条 */}
           <div className="flex-1 flex h-5 rounded-full overflow-hidden text-xs font-bold">
             <div className="bg-green-500/80 flex items-center justify-center text-white" style={{ width: `${pred.homeWinProb * 100}%` }}>
               {(pred.homeWinProb * 100).toFixed(0)}%
@@ -133,13 +136,10 @@ function PredictionRow({ pred }: { pred: PredictionWithMeta }) {
               {(pred.awayWinProb * 100).toFixed(0)}%
             </div>
           </div>
-          {/* 推荐标签 */}
-          <div className={`text-xs font-bold ${recColor} shrink-0`}>
-            → {recLabel}
-          </div>
+          <div className={`text-xs font-bold ${recColor} shrink-0`}>→ {recLabel}</div>
         </div>
 
-        {/* 比分+进球 */}
+        {/* 预测补充信息 */}
         <div className="flex items-center justify-between mt-2 text-xs text-[#F7F5F0]/40">
           <span>预测比分 {pred.mostLikelyScore}</span>
           <span>进球 {pred.expectedTotalGoals.toFixed(1)} {pred.overProb > 0.5 ? "大" : "小"}{pred.overUnderLine}</span>
@@ -149,15 +149,89 @@ function PredictionRow({ pred }: { pred: PredictionWithMeta }) {
   );
 }
 
-export default async function HomePage() {
-  const predictions = await getPredictions();
+// ──────────────────────────────────────────────
+// 主页面
+// ──────────────────────────────────────────────
+
+export default function HomePage() {
+  const [predictions, setPredictions] = useState<PredictionWithMeta[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // 实时比分/状态映射（matchId → 最新数据）
+  const [liveMap, setLiveMap] = useState<Map<string, {
+    homeScore: string;
+    awayScore: string;
+    status: "upcoming" | "live" | "finished";
+    clock: string;
+  }>>(new Map());
+
+  // SSE 实时流
+  const { connected, scores, matchStates } = useLiveStream();
+
+  // 初始加载预测数据
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const res = await fetch("/api/predict?all=1");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        if (!cancelled) {
+          setPredictions(json.data ?? []);
+          setLoading(false);
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setError(e.message);
+          setLoading(false);
+        }
+      }
+    }
+
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  // 当 SSE 比分事件到达时，更新 liveMap
+  useEffect(() => {
+    if (scores.length === 0) return;
+
+    setLiveMap((prev) => {
+      const next = new Map(prev);
+      for (const ev of scores) {
+        const e = ev as any;
+        if (!e.matchId) continue;
+        next.set(e.matchId, {
+          homeScore: e.homeScore ?? "0",
+          awayScore: e.awayScore ?? "0",
+          status: e.status ?? "upcoming",
+          clock: e.clock ?? "",
+        });
+      }
+      return next;
+    });
+  }, [scores]);
 
   // 按状态分组
-  const finished = predictions.filter((p) => p.matchStatus === "finished");
-  const upcoming = predictions.filter((p) => p.matchStatus === "upcoming");
-  const live = predictions.filter((p) => p.matchStatus === "live");
+  const live = useMemo(
+    () => predictions.filter((p) => (liveMap.get(p.espnMatchId)?.status ?? p.matchStatus) === "live"),
+    [predictions, liveMap]
+  );
+  const finished = useMemo(
+    () => predictions.filter((p) => (liveMap.get(p.espnMatchId)?.status ?? p.matchStatus) === "finished"),
+    [predictions, liveMap]
+  );
+  const upcoming = useMemo(
+    () => predictions.filter((p) => {
+      const s = liveMap.get(p.espnMatchId)?.status ?? p.matchStatus;
+      return s !== "live" && s !== "finished";
+    }),
+    [predictions, liveMap]
+  );
 
-  // 统计
+  // 统计（基于原始 prediction 数据，状态用实时覆盖）
   const totalMatches = predictions.length;
   const predicted = upcoming.length;
   const avgConfidence = upcoming.length > 0
@@ -174,6 +248,10 @@ export default async function HomePage() {
             <span className="relative flex h-2.5 w-2.5">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+            </span>
+            {/* 连接状态指示灯 */}
+            <span className={`ml-2 text-[10px] px-2 py-0.5 rounded-full ${connected ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"}`}>
+              {connected ? "● 实时连接" : "● 重连中"}
             </span>
           </div>
           <div className="flex items-center gap-3 mb-4">
@@ -205,35 +283,74 @@ export default async function HomePage() {
         </div>
       </section>
 
+      {/* Loading */}
+      {loading && (
+        <div className="max-w-5xl mx-auto px-4 py-12 text-center text-[#F7F5F0]/40 text-sm">
+          加载预测数据中...
+        </div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <div className="max-w-5xl mx-auto px-4 py-12 text-center text-red-400 text-sm">
+          加载失败：{error}
+        </div>
+      )}
+
       {/* Live Matches */}
-      {live.length > 0 && (
+      {!loading && live.length > 0 && (
         <section className="max-w-5xl mx-auto px-4 py-4">
           <h2 className="text-sm font-bold text-red-400 mb-3 flex items-center gap-2">
             <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
             正在直播 ({live.length})
           </h2>
           <div className="space-y-3">
-            {live.map((p) => <PredictionRow key={p.espnMatchId} pred={p} />)}
+            {live.map((p) => {
+              const live = liveMap.get(p.espnMatchId);
+              return (
+                <PredictionRow
+                  key={p.espnMatchId}
+                  pred={p}
+                  liveHomeScore={live?.homeScore}
+                  liveAwayScore={live?.awayScore}
+                  liveStatus={live?.status}
+                  liveClock={live?.clock}
+                />
+              );
+            })}
           </div>
         </section>
       )}
 
       {/* Upcoming Matches */}
-      {upcoming.length > 0 && (
+      {!loading && upcoming.length > 0 && (
         <section className="max-w-5xl mx-auto px-4 py-4">
           <h2 className="text-sm font-bold text-blue-400 mb-3">⏳ 即将开赛 ({upcoming.length})</h2>
           <div className="space-y-3">
-            {upcoming.map((p) => <PredictionRow key={p.espnMatchId} pred={p} />)}
+            {upcoming.map((p) => (
+              <PredictionRow key={p.espnMatchId} pred={p} />
+            ))}
           </div>
         </section>
       )}
 
       {/* Finished Matches */}
-      {finished.length > 0 && (
+      {!loading && finished.length > 0 && (
         <section className="max-w-5xl mx-auto px-4 py-4">
           <h2 className="text-sm font-bold text-gray-400 mb-3">✅ 已完场 ({finished.length})</h2>
           <div className="space-y-3">
-            {finished.map((p) => <PredictionRow key={p.espnMatchId} pred={p} />)}
+            {finished.map((p) => {
+              const live = liveMap.get(p.espnMatchId);
+              return (
+                <PredictionRow
+                  key={p.espnMatchId}
+                  pred={p}
+                  liveHomeScore={live?.homeScore}
+                  liveAwayScore={live?.awayScore}
+                  liveStatus={live?.status}
+                />
+              );
+            })}
           </div>
         </section>
       )}
@@ -241,6 +358,9 @@ export default async function HomePage() {
       {/* Footer */}
       <footer className="max-w-5xl mx-auto px-4 py-8 mt-8 border-t border-white/5 text-center">
         <p className="text-xs text-[#F7F5F0]/30">🐜 蚂蚁足球 · 2026世界杯高精度预测 · 数据来源 ESPN</p>
+        {!connected && (
+          <p className="text-xs text-red-400/60 mt-1">实时连接已断开，正在自动重连...</p>
+        )}
       </footer>
     </main>
   );
