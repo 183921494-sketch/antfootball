@@ -19,7 +19,7 @@ import {
   pollAllMatches,
   type LiveEvent,
 } from "@/lib/espn-live";
-import { fetchMatches } from "@/lib/espn-api";
+import { fetchMatches, parseMatchStatus } from "@/lib/espn-api";
 
 const POLL_INTERVAL = 30_000; // 30秒轮询
 const HEARTBEAT_INTERVAL = 25_000; // 25秒心跳
@@ -126,8 +126,23 @@ export async function GET(request: NextRequest) {
 
       const encoder = new TextEncoder();
 
-      // 发送连接确认
+      // 发送连接确认 + 当前直播比赛解说
       connectionMessage(encoder, controller);
+
+      // 为当前直播比赛生成初始解说（立即推送）
+      fetchMatches().then(matches => {
+        for (const m of matches) {
+          const s = parseMatchStatus(m);
+          if (s !== "live") continue;
+          const comp = m.competitions?.[0];
+          const h = comp?.competitors?.find((c: any) => c.homeAway === "home");
+          const a = comp?.competitors?.find((c: any) => c.homeAway === "away");
+          if (!h || !a) continue;
+          const msg = `【实时直播】${h.team?.displayName || ""} ${h.score || 0} vs ${a.score || 0} ${a.team?.displayName || ""} 正在进行中！AI解说即将开始...`;
+          const ev = { type: "commentary", matchId: m.id, message: msg, eventType: "info", timestamp: Date.now() } as any;
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n\n`));
+        }
+      }).catch(() => {});
 
       // 推送历史事件
       for (const event of RECENT_EVENTS.slice(-20)) {

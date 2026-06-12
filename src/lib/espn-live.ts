@@ -68,6 +68,7 @@ interface MatchState {
   odds1X2: Odds1X2 | null;
   oddsOU: OddsOverUnder | null;
   predictedFirst: boolean;
+  lastCommentaryTime: number;  // 上次生成解说的时间戳
 }
 
 const matchStates = new Map<string, MatchState>();
@@ -83,6 +84,7 @@ function getState(matchId: string): MatchState {
       odds1X2: null,
       oddsOU: null,
       predictedFirst: false,
+      lastCommentaryTime: 0,
     });
   }
   return matchStates.get(matchId)!;
@@ -230,6 +232,32 @@ export async function pollAllMatches(): Promise<LiveEvent[]> {
       const comp = match.competitions?.[0];
 
       // ===== 1. 比分变化检测 =====
+      const statusChanged = status !== prevState.status;
+      const justStarted = statusChanged && status === "live";
+
+      if (justStarted) {
+        // 比赛刚开始：生成赛前解说
+        const homeRating = getTeamRating(score.homeAbbrev);
+        const awayRating = getTeamRating(score.awayAbbrev);
+        const recommendation = homeRating && awayRating ? 
+          (homeRating.msiScore > awayRating.msiScore ? score.homeTeam : 
+           awayRating.msiScore > homeRating.msiScore ? score.awayTeam : "平局") : "待观察";
+        const preMatch = generatePreMatchCommentary(
+          score.homeTeam, score.awayTeam,
+          homeRating?.msiScore || 0, awayRating?.msiScore || 0,
+          recommendation
+        );
+        events.push({
+          type: "commentary",
+          matchId,
+          message: preMatch,
+          eventType: "info",
+          timestamp: now,
+        });
+        // 标记状态
+        prevState.status = status;
+      }
+
       if (score.home !== prevState.homeScore || score.away !== prevState.awayScore) {
         const clockDisplay = match.status?.displayClock || "";
         const period = match.status?.period || 0;
@@ -393,6 +421,28 @@ export async function pollAllMatches(): Promise<LiveEvent[]> {
 
             prevState.predictedFirst = true;
           }
+
+          // ===== 4. 定期解说生成（直播中每3分钟） =====
+          if (status === "live" && now - prevState.lastCommentaryTime > 180_000) {
+            const periodLabel = prevState.period <= 2 ? "上半场" : "下半场";
+            const liveUpdate = generateLiveUpdateCommentary(
+              score.homeTeam,
+              score.awayTeam,
+              score.home,
+              score.away,
+              prevState.clock,
+              periodLabel,
+              prevState.odds1X2
+            );
+            events.push({
+              type: "commentary",
+              matchId,
+              message: liveUpdate,
+              eventType: "info",
+              timestamp: now,
+            });
+            prevState.lastCommentaryTime = now;
+          }
         }
       }
     }
@@ -473,4 +523,30 @@ export function generatePreMatchCommentary(
     analysis = `双方MSI评分接近，${homeTeam} ${homeRating.toFixed(2)} vs ${awayTeam} ${awayRating.toFixed(2)}，将是一场势均力敌的较量。`;
   }
   return `【赛前分析】${analysis} 推荐方向：${recommendation}。赔率数据将持续更新。`;
+}
+
+
+/**
+ * 生成直播中定期赛事播报
+ */
+function generateLiveUpdateCommentary(
+  homeTeam: string,
+  awayTeam: string,
+  homeScore: string,
+  awayScore: string,
+  clock: string,
+  periodLabel: string,
+  odds: any
+): string {
+  const scoreStr = `【比分 ${homeScore}-${awayScore}】`;
+  let oddsStr = "";
+  if (odds?.home && odds.home > 0) {
+    oddsStr = `滚球盘口 ${odds.home.toFixed(2)}/${((odds.draw || 3.3)).toFixed(2)}/${odds.away.toFixed(2)}，`;
+  }
+  const phrases = [
+    `${periodLabel}进行至${clock}分钟，${scoreStr}${oddsStr}模型持续跟踪赛事动态。`,
+    `${clock}′ 赛事速报：${homeTeam} ${homeScore} vs ${awayScore} ${awayTeam}。${oddsStr}双方继续较量！`,
+    `${periodLabel}${clock}分钟，${scoreStr}滚球赔率${odds?.home ? `主队${odds.home.toFixed(2)}` : "等待更新"}，AI预测持续校准中。`,
+  ];
+  return `【赛事播报】${phrases[Math.floor(Math.random() * phrases.length)]}`;
 }
