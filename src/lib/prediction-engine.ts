@@ -548,12 +548,32 @@ export const PRESET_RATINGS: Record<string, Omit<TeamRating, "msiScore" | "attac
   CUR: { teamId: "cur", teamName: "库拉索", abbreviation: "CUR", rosterDepth: 4.0, tacticalSystem: 4.0, keyPlayerImpact: 3.5, coachDecision: 4.0, matchupData: 3.5, mentalResilience: 5.0 },
   UZB: { teamId: "uzb", teamName: "乌兹别克斯坦", abbreviation: "UZB", rosterDepth: 5.0, tacticalSystem: 5.0, keyPlayerImpact: 4.5, coachDecision: 5.0, matchupData: 4.5, mentalResilience: 5.5 },
   HAI: { teamId: "hai", teamName: "海地", abbreviation: "HAI", rosterDepth: 4.0, tacticalSystem: 4.0, keyPlayerImpact: 4.0, coachDecision: 4.0, matchupData: 3.5, mentalResilience: 5.0 },
+  // ===== 新增：补全48队 =====
+  CAN: { teamId: "can", teamName: "加拿大", abbreviation: "CAN", rosterDepth: 6.0, tacticalSystem: 6.0, keyPlayerImpact: 5.5, coachDecision: 6.0, matchupData: 5.5, mentalResilience: 6.5 },
+  ITA: { teamId: "ita", teamName: "意大利", abbreviation: "ITA", rosterDepth: 7.5, tacticalSystem: 7.5, keyPlayerImpact: 7.0, coachDecision: 7.0, matchupData: 7.0, mentalResilience: 7.0 },
+  DEN: { teamId: "den", teamName: "丹麦", abbreviation: "DEN", rosterDepth: 6.5, tacticalSystem: 6.5, keyPlayerImpact: 6.0, coachDecision: 6.5, matchupData: 6.0, mentalResilience: 6.5 },
+  POL: { teamId: "pol", teamName: "波兰", abbreviation: "POL", rosterDepth: 6.0, tacticalSystem: 6.0, keyPlayerImpact: 6.5, coachDecision: 5.5, matchupData: 5.5, mentalResilience: 6.0 },
+  AUT: { teamId: "aut", teamName: "奥地利", abbreviation: "AUT", rosterDepth: 6.0, tacticalSystem: 6.5, keyPlayerImpact: 6.0, coachDecision: 6.5, matchupData: 6.0, mentalResilience: 6.5 },
+  SRB: { teamId: "srb", teamName: "塞尔维亚", abbreviation: "SRB", rosterDepth: 6.5, tacticalSystem: 6.0, keyPlayerImpact: 7.0, coachDecision: 6.0, matchupData: 6.0, mentalResilience: 6.5 },
+  NGA: { teamId: "nga", teamName: "尼日利亚", abbreviation: "NGA", rosterDepth: 6.0, tacticalSystem: 6.0, keyPlayerImpact: 6.5, coachDecision: 5.5, matchupData: 5.5, mentalResilience: 6.0 },
+  ALG: { teamId: "alg", teamName: "阿尔及利亚", abbreviation: "ALG", rosterDepth: 5.5, tacticalSystem: 5.5, keyPlayerImpact: 5.5, coachDecision: 5.5, matchupData: 5.0, mentalResilience: 5.5 },
+  TUN: { teamId: "tun", teamName: "突尼斯", abbreviation: "TUN", rosterDepth: 5.0, tacticalSystem: 5.0, keyPlayerImpact: 4.5, coachDecision: 5.0, matchupData: 4.5, mentalResilience: 5.5 },
+  IRQ: { teamId: "irq", teamName: "伊拉克", abbreviation: "IRQ", rosterDepth: 5.0, tacticalSystem: 5.0, keyPlayerImpact: 4.5, coachDecision: 5.0, matchupData: 4.5, mentalResilience: 5.0 },
+  UAE: { teamId: "uae", teamName: "阿联酋", abbreviation: "UAE", rosterDepth: 4.5, tacticalSystem: 4.5, keyPlayerImpact: 4.0, coachDecision: 4.5, matchupData: 4.0, mentalResilience: 4.5 },
+  CRC: { teamId: "crc", teamName: "哥斯达黎加", abbreviation: "CRC", rosterDepth: 5.5, tacticalSystem: 5.5, keyPlayerImpact: 5.0, coachDecision: 5.5, matchupData: 5.0, mentalResilience: 6.0 },
+  JAM: { teamId: "jam", teamName: "牙买加", abbreviation: "JAM", rosterDepth: 5.0, tacticalSystem: 5.0, keyPlayerImpact: 5.5, coachDecision: 5.0, matchupData: 4.5, mentalResilience: 5.5 },
+  PER: { teamId: "per", teamName: "秘鲁", abbreviation: "PER", rosterDepth: 5.5, tacticalSystem: 5.5, keyPlayerImpact: 5.0, coachDecision: 5.5, matchupData: 5.0, mentalResilience: 6.0 },
+  VEN: { teamId: "ven", teamName: "委内瑞拉", abbreviation: "VEN", rosterDepth: 5.5, tacticalSystem: 5.5, keyPlayerImpact: 5.5, coachDecision: 5.5, matchupData: 5.0, mentalResilience: 6.0 },
+  CHI: { teamId: "chi", teamName: "智利", abbreviation: "CHI", rosterDepth: 5.5, tacticalSystem: 5.5, keyPlayerImpact: 5.5, coachDecision: 5.0, matchupData: 5.0, mentalResilience: 5.5 },
 };
 
-export function getTeamRating(abbreviation: string): TeamRating | null {
+// 未知球队默认评分（用于覆盖48队所有球队）
+const DEFAULT_RATING = { rosterDepth: 5.0, tacticalSystem: 5.0, keyPlayerImpact: 5.0, coachDecision: 5.0, matchupData: 5.0, mentalResilience: 5.0 };
+
+export function getTeamRating(abbreviation: string): TeamRating {
   const preset = PRESET_RATINGS[abbreviation];
-  if (!preset) return null;
-  const rating: TeamRating = { ...preset, msiScore: 0, attackRating: 0, defenseRating: 0 };
+  const src = preset ?? DEFAULT_RATING;
+  const rating: TeamRating = { ...src, teamId: abbreviation.toLowerCase(), teamName: preset?.teamName ?? abbreviation, abbreviation, msiScore: 0, attackRating: 0, defenseRating: 0 };
   rating.msiScore = calculateMSI(rating);
   return rating;
 }

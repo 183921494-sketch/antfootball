@@ -90,7 +90,6 @@ async function generatePredictionFromESPN(match: ESPNMatch): Promise<PredictionW
 
   const homeRating = getTeamRating(homeAbbrev);
   const awayRating = getTeamRating(awayAbbrev);
-  if (!homeRating || !awayRating) return null;
 
   // 获取博彩赔率
   const homeTeamName = home.team?.displayName || homeAbbrev;
