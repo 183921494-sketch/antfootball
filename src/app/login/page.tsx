@@ -88,7 +88,7 @@ export default function LoginPage() {
         <div className="text-center mb-8">
           <img src="/logo.png" alt="蚂蚁足球" className="w-16 h-16 mx-auto mb-2" />
           <h1 className="text-2xl font-bold text-[#B08D57]">蚂蚁足球</h1>
-          <p className="text-[#F7F5F0]/40 text-sm mt-1">高精度世界杯预测</p>
+          <p className="text-[#F7F5F0]/40 text-sm mt-1">世界杯让生活变得更美好</p>
         </div>
 
         <Suspense fallback={<div className="text-center text-[#F7F5F0]/30">加载中...</div>}>

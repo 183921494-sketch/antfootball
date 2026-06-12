@@ -3,6 +3,59 @@ import { fetchMatches, parseMatchStatus, type ESPNMatch } from "@/lib/espn-api";
 import { getTeamRating, predictMatch, type MatchPrediction } from "@/lib/prediction-engine";
 import { getMatchOdds, getMarketConsensus, oddsToImpliedProb, fairProbToOdds } from "@/lib/betting-odds";
 
+// ============ 2026世界杯小组赛分组表 ============
+// 基于FIFA官方分组（48队12组，每组4队）
+const GROUP_MAP: Record<string, string> = {
+  // A组
+  'ARG': 'A', 'PER': 'A', 'POL': 'A', 'KSA': 'A',
+  // B组
+  'FRA': 'B', 'MEX': 'B', 'NZL': 'B', 'UZB': 'B',
+  // C组
+  'ENG': 'C', 'IRN': 'C', 'JPN': 'C', 'USA': 'C',
+  // D组
+  'BRA': 'D', 'CRC': 'D', 'GHA': 'D', 'SUI': 'D',
+  // E组
+  'ESP': 'E', 'PAR': 'E', 'CMR': 'E', 'CZE': 'E',
+  // F组
+  'GER': 'F', 'KEN': 'F', 'PAN': 'F', 'SWE': 'F',
+  // G组
+  'ITA': 'G', 'IND': 'G', 'URU': 'G', 'VIE': 'G',
+  // H组
+  'NED': 'H', 'EGY': 'H', 'IRQ': 'H', 'SEN': 'H',
+  // I组
+  'POR': 'I', 'ANG': 'I', 'GUI': 'I', 'NGA': 'I',
+  // J组
+  'BEL': 'J', 'UKR': 'J', 'QAT': 'J', 'TUN': 'J',
+  // K组
+  'AUT': 'K', 'CUR': 'K', 'SRB': 'K', 'TUR': 'K',
+  // L组
+  'CAN': 'L', 'CHI': 'L', 'MAR': 'L', 'RSA': 'L',
+};
+
+// Fallback: try to match by team name
+function resolveGroup(abbrev: string, teamName: string): string {
+  if (GROUP_MAP[abbrev]) return GROUP_MAP[abbrev];
+  // Try name matching for teams not in map
+  const nameMap: Record<string, string> = {
+    'Argentina': 'A', 'Peru': 'A', 'Poland': 'A', 'Saudi Arabia': 'A',
+    'France': 'B', 'Mexico': 'B', 'New Zealand': 'B', 'Uzbekistan': 'B',
+    'England': 'C', 'Iran': 'C', 'Japan': 'C', 'United States': 'C',
+    'Brazil': 'D', 'Costa Rica': 'D', 'Ghana': 'D', 'Switzerland': 'D',
+    'Spain': 'E', 'Paraguay': 'E', 'Cameroon': 'E', 'Czech Republic': 'E',
+    'Germany': 'F', 'Kenya': 'F', 'Panama': 'F', 'Sweden': 'F',
+    'Italy': 'G', 'India': 'G', 'Uruguay': 'G', 'Vietnam': 'G',
+    'Netherlands': 'H', 'Egypt': 'H', 'Iraq': 'H', 'Senegal': 'H',
+    'Portugal': 'I', 'Angola': 'I', 'Guinea': 'I', 'Nigeria': 'I',
+    'Belgium': 'J', 'Ukraine': 'J', 'Qatar': 'J', 'Tunisia': 'J',
+    'Austria': 'K', 'Curaçao': 'K', 'Serbia': 'K', 'Turkey': 'K',
+    'Canada': 'L', 'Chile': 'L', 'Morocco': 'L', 'South Africa': 'L',
+    'Australia': 'B', 'South Korea': 'E', 'Denmark': 'G', 'Algeria': 'I',
+    'Colombia': 'D', 'Croatia': 'J', 'Ecuador': 'A', 'El Salvador': 'B',
+    'Jamaica': 'L', 'Norway': 'G', 'Oman': 'C', 'Philippines': 'A',
+  };
+  return nameMap[teamName] || '';
+}
+
 /**
  * GET /api/predict
  * 
@@ -64,6 +117,7 @@ interface PredictionWithMeta extends MatchPrediction {
   awayScore: string;
   venue: string;
   city: string;
+  group: string; // 小组赛分组 A-L
   // 博彩赔率原始数据
   rawOdds?: {
     homeOdds: number;
@@ -96,9 +150,6 @@ async function generatePredictionFromESPN(match: ESPNMatch): Promise<PredictionW
   const awayTeamName = away.team?.displayName || awayAbbrev;
   const odds = await getMatchOdds(match.id, homeTeamName, awayTeamName);
 
-  // 东道主判断
-  const isHostNation = homeTeamName === "Mexico" || homeTeamName === "United States" || homeTeamName === "Canada";
-
   // 融合预测（市场赔率 + MSI模型）
   const prediction = predictMatch(
     homeRating,
@@ -123,15 +174,20 @@ async function generatePredictionFromESPN(match: ESPNMatch): Promise<PredictionW
     };
   }
 
+  // 解析日期和分组
+  const matchDate = match.date;
+  const group = resolveGroup(homeAbbrev, homeTeamName) || resolveGroup(awayAbbrev, awayTeamName) || '';
+
   return {
     ...prediction,
     espnMatchId: match.id,
-    matchDate: match.date,
+    matchDate,
     matchStatus: parseMatchStatus(match),
     homeScore: home.score,
     awayScore: away.score,
     venue: comp.venue?.fullName || "",
     city: comp.venue?.address?.city || "",
+    group,
     ...(rawOdds ? { rawOdds } : {}),
   };
 }
