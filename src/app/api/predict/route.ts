@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchMatches, parseMatchStatus, type ESPNMatch } from "@/lib/espn-api";
-import { getTeamRating, predictMatch, type MatchPrediction } from "@/lib/prediction-engine";
-import { getMatchOdds, oddsToImpliedProb } from "@/lib/betting-odds";
+import { getTeamRating, predictMatch } from "@/lib/prediction-engine";
+import { getMatchOdds } from "@/lib/betting-odds";
 
 // ============ 2026世界杯小组赛分组表 ============
 const GROUP_MAP: Record<string, string> = {
@@ -62,8 +62,12 @@ export async function GET(request: NextRequest) {
 
     const results: any[] = [];
     for (const match of filtered) {
-      const item = buildMatchResponse(match);
-      if (item) results.push(item);
+      try {
+        const item = await buildMatchResponse(match);
+        if (item) results.push(item);
+      } catch (err: any) {
+        console.error('[DEBUG] Error for match', match.id, ':', err.message);
+      }
     }
 
     results.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
